@@ -8,7 +8,7 @@ test("register, top up mock balance, request job, download result",async({page})
   await page.getByLabel("Пароль").fill("Test Browser Password 2026!");
   await page.getByRole("button",{name:"Зарегистрироваться"}).click();
   await expect(page).toHaveURL(/\/dashboard/);
-  await expect(page.getByText("Мои генерации")).toBeVisible();
+  await expect(page.getByRole("heading",{name:"Мои генерации"})).toBeVisible();
   await page.getByRole("button",{name:"Получить тестовые 500 ₽"}).click();
   await expect(page.getByText(/500,00/)).toBeVisible();
   await page.goto("/apps/text-to-image");
