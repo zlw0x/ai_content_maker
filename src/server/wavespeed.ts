@@ -21,9 +21,12 @@ async function call(path:string,method:"POST"|"GET", body?:object):Promise<Recor
   if(raw.code!==200||!raw.data) throw new HttpError(502,"PROVIDER_ERROR","Некорректный ответ WaveSpeed API: "+String(raw.message??"unknown"));
   return raw.data;
 }
+export function priceRequestBody(modelId:string,input:Record<string,unknown>){
+  return {model_id:modelId,inputs:input};
+}
 export async function providerPrice(modelId:string, input:Record<string,unknown>):Promise<string> {
   if(config().WAVESPEED_MODE==="mock") return String(config().MOCK_COST_USD);
-  const data=await call("/model/price","POST",{model_id:modelId,input});
+  const data=await call("/model/price","POST",priceRequestBody(modelId,input));
   const price=data.discounted_price;
   if(typeof price!=="number"||!Number.isFinite(price)||price<0||data.currency!=="USD")
     throw new HttpError(503,"PRICE_INVALID","Провайдер не предоставил действительную цену");

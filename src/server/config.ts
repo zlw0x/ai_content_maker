@@ -22,7 +22,9 @@ const schema = z.object({
   WORKER_INTERVAL_MS: z.coerce.number().int().min(1000).default(3000),
   MOCK_COST_USD: z.coerce.number().positive().default(0.005),
   DEMO_CREDIT_ENABLED: z.enum(["true","false"]).default("false"),
-  OUTPUT_HOST_ALLOWLIST: z.string().default("")
+  OUTPUT_HOST_ALLOWLIST: z.string().default(""),
+  OUTPUT_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
+  STAGING_MANUAL_CREDIT_ENABLED: z.enum(["true","false"]).default("false")
 });
 export type Config = z.infer<typeof schema>;
 let cached: Config | undefined;
