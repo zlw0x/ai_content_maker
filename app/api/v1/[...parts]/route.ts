@@ -6,6 +6,8 @@ import {currentUser,beginSession,endSession,sameOrigin} from "@/server/security"
 import {register,login,createQuote,createOrder,listOrders,getOrder,getUserWallet,createTopup,getTopup} from "@/server/operations";
 import {saveInput,userAsset,localMedia} from "@/server/media";
 import {db} from "@/server/db";
+import {config} from "@/server/config";
+import {grantDemoCredit} from "@/server/operations";
 import {assert,publicError,HttpError} from "@/server/errors";
 
 export const runtime="nodejs";
@@ -27,6 +29,7 @@ const idempotency=(r:NextRequest)=>r.headers.get("Idempotency-Key");
 async function getHandler(request:NextRequest,parts:string[]) {
   const path=parts.join("/");
   if(path==="health")return json({status:"ok"});
+  if(path==="system")return json({mock:config().WAVESPEED_MODE==="mock",demoCreditEnabled:config().DEMO_CREDIT_ENABLED==="true"&&config().WAVESPEED_MODE==="mock"&&config().PAYMENT_MODE==="disabled",paymentsEnabled:config().PAYMENT_MODE==="yookassa"});
   if(path==="health/ready"){await db().query("SELECT 1");return json({status:"ready"});}
   if(path==="apps")return json(apps.map(a=>({...a,enabled:Boolean(modelSpecs[a.slug])})));
   if(parts[0]==="apps"&&parts.length===2){
@@ -78,6 +81,7 @@ async function postHandler(request:NextRequest,parts:string[]){
     const data=Buffer.from(await file.arrayBuffer());
     return json(await saveInput(user.id,data,file.name),201);
   }
+  if(path==="demo/credit")return json(await grantDemoCredit(user.id));
   if(path==="quotes")return json(await createQuote(user.id,await parseJson(request)),201);
   if(path==="orders")return json(await createOrder(user.id,await parseJson(request),idempotency(request)),201);
   if(path==="topups")return json(await createTopup(user.id,await parseJson(request),idempotency(request)),201);

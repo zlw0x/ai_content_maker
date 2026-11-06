@@ -11,7 +11,7 @@
 | App | WaveSpeed ID | Status |
 |---|---|---|
 | text-to-image | wavespeed-ai/z-image/turbo | integrated |
-| premium-image | wavespeed-ai/z-image/turbo (PNG variant) | integrated; quality differentiation not demonstrated |
+| premium-image | bytedance/seedream-v5.0-pro | Separate Pro model mapped; live quality and pricing tests pending |
 | photo-editor | wavespeed-ai/z-image/turbo (image input) | integrated |
 | background-swap | same | workflow preset; quality requires testing |
 | ai-portrait | same | workflow preset |
@@ -58,6 +58,7 @@ Do not commit `cookies.txt`.
 ## Remaining deployment and testing work
 
 - Migrate media storage to S3/RU-compatible object store before multi-host deployment.
+- Explicitly configure OUTPUT_HOST_ALLOWLIST for provider CDN hosts observed during validated live tests; output downloads fail closed without it.
 - Implement reconciliation interface for jobs with unknown provider acceptance and for partial output persistence.
 - Upgrade session/auth with verified email/password reset, DB cleanup of expired sessions, additional abuse protection.
 - Audit payment receipts, refunds and customer communication before enabling real funds.

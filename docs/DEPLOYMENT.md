@@ -1,50 +1,64 @@
-# Backend deployment — single VPS
+# Развёртывание MVP на одном сервере
 
-This is an infrastructure preview, not a public production acceptance checklist.
+## Состав
+- `web` — Next.js: каталог, кабинет и API.
+- `worker` — обработка очереди генераций; предполагается ровно один worker.
+- `db` — PostgreSQL 17, данные в volume `pgdata`.
+- `migrate` — одноразовое применение миграций.
+- `media` — Docker volume с приватными входами и результатами.
 
-## Locally
-
+## Команды
 ```bash
+git clone https://github.com/zlw0x/ai_content_maker.git
+cd ai_content_maker
 cp .env.example .env
-# Set POSTGRES_PASSWORD and DATABASE_URL to the same new secret.
-docker compose up --build -d
+# Установите отдельный непустой пароль POSTGRES_PASSWORD.
+docker compose up -d --build
 docker compose ps
-curl http://127.0.0.1:3000/api/v1/health/ready
+docker compose logs --tail=80 web worker
+curl -fsS http://127.0.0.1:3000/api/v1/health/ready
 ```
 
-Services: `db` (PostgreSQL), `migrate` (one-shot), `web` (Next.js API + UI), `worker` (queue processing). Private files live in the named `media` volume.
-
-By design, web and PostgreSQL ports are bound only to localhost. To expose the web service use a configured reverse proxy (TLS, upload body cap, rate limiting).
-
-## Mock testing
-
-Mock mode is default. Real WaveSpeed billing and YooKassa transactions are disabled.
-
+По умолчанию порт 3000 доступен только с самого VPS. Для тестов с рабочей станции:
 ```bash
-# local Node (not the production container):
-npm run dev:credit -- demo@example.com 50000
+ssh -L 3000:127.0.0.1:3000 user@your-vps
 ```
+Открыть `http://localhost:3000`. Для постоянного домена настройте HTTPS proxy и корректное `APP_ORIGIN` (в точности как origin браузера).
 
-For Docker test seed, execute the CLI with an explicit non-production environment in a one-shot container, and only while both modes are mock/disabled:
+## Демо-тест без API-ключей
+В `.env`:
+```
+WAVESPEED_MODE=mock
+PAYMENT_MODE=disabled
+ALLOW_LIVE_PAYMENTS=false
+DEMO_CREDIT_ENABLED=true
+```
+Зарегистрируйтесь через /account, получите разовый тестовый баланс в /dashboard, создайте и скачайте mock-файл в одном из приложений.
 
+Не включайте `DEMO_CREDIT_ENABLED` в подключённой к реальному провайдеру или платёжным операциям среде. Не переносите пользовательские тестовые балансы в рабочую базу.
+
+## Контроль качества
 ```bash
-docker compose run --rm -e NODE_ENV=development --no-deps worker npm run dev:credit -- demo@example.com 50000
+npm ci
+npm run typecheck
+npm run test:unit
+npm run build
 ```
+В GitHub Actions дополнительно запускаются миграции, REST smoke, Docker Compose config и браузерные Playwright tests.
 
-Do not enable this on an internet-facing production instance.
+## Live integraton только на staging
+1. Отдельный **чистый** экземпляр БД без dev-платежей, средства/ключи минимально возможные, `DEMO_CREDIT_ENABLED=false`.
+2. `WAVESPEED_MODE=live`, `WAVESPEED_API_KEY`, при webhook `WAVESPEED_CALLBACK_URL` и `WAVESPEED_WEBHOOK_SECRET`.
+3. `OUTPUT_HOST_ALLOWLIST` — точные hostname CDN для проверенных URL провайдера, через запятую. Без него скачивание upstream результатов преднамеренно блокируется.
+4. Настройте защиту reverse proxy: HTTPS, request body size, rate limits, журналы без токенов.
+5. Реальные платежи ЮKassa в дефолтном релизе не разрешены. Проверка эквайринга, возвратов и фискализации — отдельный этап.
+6. Обязательно испытать резервное копирование и восстановление pgdata + media volume.
 
-## Live integration (staging only)
+## Ограничения
+- Локальное storage и один worker: нельзя масштабировать горизонтально без общего object storage и согласованного лимита конкурентности.
+- При неизвестном результате платного upstream POST задание получает статус `unknown`. Нельзя повторно отправлять его без проверки истории провайдера.
+- Ошибки сохранения результата не должны списывать резерв; worker повторяет безопасный GET/скачивание.
+- Не реализованы подтверждение email, password reset, полноценный admin support, отчётность и фискализация.
+- Миграции сохраняют данные, но любая новая версия должна сначала проходить staging.
 
-1. Configure `WAVESPEED_MODE=live`, `WAVESPEED_API_KEY` and optional standard webhook URL/secret; then do a budget-capped staging test.
-2. Explicitly configure YooKassa only after verifying the account/shop setup: `PAYMENT_MODE=yookassa`, `ALLOW_LIVE_PAYMENTS=true`, `YOOKASSA_SHOP_ID`, `YOOKASSA_SECRET_KEY`.
-3. Make sure `APP_ORIGIN` matches your actual HTTPS origin.
-4. Media outputs are retained only 7 days by default and are purged in worker.
-5. Back up DB and media volume together. Verify restore before exposing paid use.
-
-## Limits / caveats
-
-- Dockerfile intentionally uses `npm install`, because repo does not yet include a lockfile; freeze it and switch to `npm ci` for reproducible release builds.
-- The worker uses PostgreSQL polling; this setup assumes one worker process.
-- An uncertain upstream submit remains in `unknown`. Run `npm run reconcile -- list` and only attach a verified existing provider prediction. Do not re-submit.
-- Payments stuck in `unknown` need operational reconciliation with YooKassa. Never blindly create a second payment.
-- Auth password reset, email verification, fiscalization, refund API, additional output artifacts and automated integration tests against real providers are not complete.
+Дополнительная информация: [Backend](BACKEND.md), [Review](MVP_REVIEW.md), [Security](SECURITY_COMPLIANCE.md).

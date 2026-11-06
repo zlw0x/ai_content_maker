@@ -25,15 +25,17 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
               <nav className="main-nav" aria-label="Основное меню">
                 <Link href="/#catalog">Каталог</Link>
                 <Link href="/#how">Как работает</Link>
+                <Link href="/dashboard">Мои генерации</Link>
+                <Link href="/account">Вход</Link>
               </nav>
-              <span className="header-status">Проектирование · Демо</span>
+              <span className="header-status">MVP · Тестирование</span>
             </div>
           </header>
           {children}
           <footer className="site-footer">
             <div className="container footer-inner">
-              <span>© AI Content Maker · Прототип интерфейса</span>
-              <span>Без реальных платежей и генераций</span>
+              <span>© AI Content Maker · MVP</span>
+              <span>Mock-режим по умолчанию · Без реальных платежей</span>
             </div>
           </footer>
         </div>

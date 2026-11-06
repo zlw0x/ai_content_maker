@@ -22,8 +22,14 @@ export const modelSpecs: Record<string, ModelSpec> = {
     build:i=>({prompt:i.prompt,size:i.size,output_format:"jpeg"})
   },
   "premium-image": {
-    modelId:zImage,mode:"text",inputSchema:z.object({prompt,size}),
-    build:i=>({prompt:i.prompt,size:i.size,output_format:"png"})
+    modelId:"bytedance/seedream-v5.0-pro",mode:"text",inputSchema:z.object({prompt,size}),
+    build:i=>({
+      prompt:i.prompt,
+      aspect_ratio:i.size==="1536*1024"?"3:2":i.size==="1024*1536"?"2:3":"1:1",
+      resolution:"1k",
+      output_format:"png",
+      prompt_optimization_mode:"standard"
+    })
   },
   "photo-editor": {
     modelId:zImage,mode:"image",inputSchema:z.object({prompt,imageAssetId:imageRef,strength:z.number().min(0.1).max(0.9).default(0.6)}),
@@ -53,7 +59,7 @@ export const modelSpecs: Record<string, ModelSpec> = {
   },
   "ai-voiceover": {
     modelId:"minimax/speech-2.6-hd",mode:"text",
-    inputSchema:z.object({text:z.string().trim().min(1).max(5000),voice:z.enum(["Friendly_Person","Wise_Woman","Calm_Woman","Deep_Voice_Man"]).default("Friendly_Person"),speed:z.number().min(0.5).max(2).default(1)}),
+    inputSchema:z.object({text:z.string().trim().min(1).max(5000),voice:z.enum(["Russian_ReliableMan","Russian_AttractiveGuy","Russian_BrightHeroine","Russian_AmbitiousWoman"]).default("Russian_ReliableMan"),speed:z.number().min(0.5).max(2).default(1)}),
     build:i=>({text:i.text,voice_id:i.voice,speed:i.speed,format:"mp3",language_boost:"Russian"})
   },
   "upscale": {

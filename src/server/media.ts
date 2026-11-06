@@ -55,6 +55,11 @@ function validateOutputUrl(raw:string):URL {
   const host=u.hostname.toLowerCase();
   if(host==="localhost"||host.endsWith(".local")||host.endsWith(".internal")||isIP(host)||host.endsWith(".localhost"))
     throw new HttpError(502,"UNSAFE_MEDIA_URL","Internal output URL refused");
+  // The output URL came from WaveSpeed, but its hostname could still resolve to private
+  // infrastructure. Require a per-deployment exact host allowlist in live mode.
+  const allowed=config().OUTPUT_HOST_ALLOWLIST.split(",").map(v=>v.trim().toLowerCase()).filter(Boolean);
+  if(!allowed.includes(host))throw new HttpError(502,"OUTPUT_HOST_NOT_ALLOWED",
+    "Host результата не разрешён в OUTPUT_HOST_ALLOWLIST");
   return u;
 }
 async function remoteBytes(raw:string):Promise<{body:Buffer;type:string}> {
@@ -81,7 +86,7 @@ async function remoteBytes(raw:string):Promise<{body:Buffer;type:string}> {
   if(!allowed.includes(type))throw new HttpError(502,"INVALID_OUTPUT_TYPE","Недопустимый формат результата");
   return {body,type};
 }
-export async function persistOutput(userId:string,jobId:string,outputUrl:string):Promise<string> {
+export async function persistOutput(userId:string,jobId:string,outputUrl:string,sourceIndex=0):Promise<string> {
   const {body,type}=await remoteBytes(outputUrl);
   const id=randomUUID();
   const key="output/"+id;
@@ -89,8 +94,8 @@ export async function persistOutput(userId:string,jobId:string,outputUrl:string)
   await fs.mkdir(path.dirname(full),{recursive:true});
   await fs.writeFile(full,body,{flag:"wx",mode:0o600});
   try {
-    await db().query("INSERT INTO media_assets(id,user_id,job_id,kind,object_key,media_type,byte_size,expires_at) VALUES($1,$2,$3,'output',$4,$5,$6,now()+interval '7 days')",
-    [id,userId,jobId,key,type,body.length]);
+    await db().query("INSERT INTO media_assets(id,user_id,job_id,kind,object_key,media_type,byte_size,source_index,expires_at) VALUES($1,$2,$3,'output',$4,$5,$6,$7,now()+interval '7 days')",
+    [id,userId,jobId,key,type,body.length,sourceIndex]);
   }catch(error){await fs.unlink(full).catch(()=>{});throw error;}
   return id;
 }

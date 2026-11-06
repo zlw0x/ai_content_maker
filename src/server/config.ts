@@ -20,7 +20,9 @@ const schema = z.object({
   MAX_DAILY_SPEND_KOPECKS: z.coerce.number().int().positive().default(200000),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(10).default(2),
   WORKER_INTERVAL_MS: z.coerce.number().int().min(1000).default(3000),
-  MOCK_COST_USD: z.coerce.number().positive().default(0.005)
+  MOCK_COST_USD: z.coerce.number().positive().default(0.005),
+  DEMO_CREDIT_ENABLED: z.enum(["true","false"]).default("false"),
+  OUTPUT_HOST_ALLOWLIST: z.string().default("")
 });
 export type Config = z.infer<typeof schema>;
 let cached: Config | undefined;

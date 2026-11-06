@@ -8,7 +8,7 @@ import {prepareApp} from "./model-apps";
 import {inputForQuote} from "./media";
 import {providerPrice,uploadWaveSpeed} from "./wavespeed";
 import {inputDigest,quoteKopecks} from "./pricing";
-import {getWallet,reserveForOrder} from "./wallet";
+import {getWallet,reserveForOrder,creditConfirmedPayment} from "./wallet";
 import {createSbpPayment,verifySbpPayment,amountInKopecks} from "./yookassa";
 import type {Payment} from "./yookassa";
 
@@ -94,6 +94,11 @@ export async function createOrder(userId:string,raw:unknown,rawIdem:string|null)
       SELECT id,app_slug,model_id,input_json,amount_kopecks FROM price_quotes
       WHERE id=$1 AND user_id=$2 AND expires_at>now() FOR UPDATE`,[body.data.quoteId,userId])).rows[0];
     assert(quote&&quote.input_json,409,"QUOTE_EXPIRED","Расчёт цены истёк, запросите новый");
+    if(config().WAVESPEED_MODE==="live"){
+      // Refuse to spend a previously minted demo balance on real provider calls.
+      const demo=await c.query("SELECT id FROM payments WHERE user_id=$1 AND provider='dev' LIMIT 1",[userId]);
+      assert(!demo.rowCount,409,"DEMO_FUNDS_NOT_VALID","Используйте отдельный аккаунт и базу для реальных операций");
+    }
     const used=await c.query("SELECT id FROM generation_jobs WHERE quote_id=$1 LIMIT 1",[quote.id]);
     assert(!used.rowCount,409,"QUOTE_ALREADY_USED","Расчёт цены уже использован");
     const sum=(await c.query<{spent:string}>(`SELECT coalesce(sum(reserved_kopecks),0) AS spent FROM generation_jobs
@@ -177,5 +182,25 @@ export async function reconcileTopup(externalId:string):Promise<boolean> {
       await c.query("UPDATE payments SET status='canceled',updated_at=now() WHERE id=$1",[payment.id]);
     }
     return true;
+  });
+}
+
+/**
+ * Creates a one-time synthetic credit only when both external providers are disabled.
+ * Never enable this endpoint against a DB that will later handle real payments.
+ */
+export async function grantDemoCredit(userId:string){
+  const c=config();
+  assert(c.DEMO_CREDIT_ENABLED==="true"&&c.WAVESPEED_MODE==="mock"&&c.PAYMENT_MODE==="disabled",
+    403,"DEMO_DISABLED","Тестовое пополнение недоступно");
+  return transaction(async dbClient=>{
+    await dbClient.query("SELECT pg_advisory_xact_lock(hashtext($1))",[userId+":demo-credit-v1"]);
+    const old=await dbClient.query("SELECT id FROM payments WHERE user_id=$1 AND provider='dev' AND client_idempotency_key='demo-credit-v1'",[userId]);
+    if(old.rowCount)return {credited:false,amountKopecks:0};
+    const id=randomUUID();
+    await dbClient.query(`INSERT INTO payments(id,user_id,client_idempotency_key,amount_kopecks,status,provider,external_payment_id)
+      VALUES($1,$2,'demo-credit-v1',50000,'succeeded','dev',$3)`,[id,userId,"dev-"+id]);
+    await creditConfirmedPayment(dbClient,id,userId,50000);
+    return {credited:true,amountKopecks:50000};
   });
 }

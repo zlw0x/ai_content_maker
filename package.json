@@ -12,7 +12,8 @@
     "reconcile": "tsx scripts/reconcile-unknown.ts",
     "dev:credit": "tsx scripts/dev-credit.ts",
     "test:unit": "tsx --test tests/unit.test.ts",
-    "test:smoke": "tsx tests/smoke.ts"
+    "test:smoke": "tsx tests/smoke.ts",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "decimal.js": "^10.6.0",
@@ -23,6 +24,7 @@
     "zod": "^3.25.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.57.0",
     "@types/node": "^22.0.0",
     "@types/pg": "^8.15.4",
     "@types/react": "^19.0.0",
