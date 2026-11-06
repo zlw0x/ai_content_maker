@@ -24,6 +24,7 @@ export function AppDemo({app}:{app:AiApp}){
   const [orderKey,setOrderKey]=useState("");
   const [busy,setBusy]=useState<"quote"|"order"|null>(null);
   const [error,setError]=useState("");
+  const [isMock,setIsMock]=useState(true);
   const [loginNeeded,setLoginNeeded]=useState(false);
   const needsImage=app.mode==="image-prompt"||app.mode==="image-only";
   const needsPrompt=app.mode!=="image-only";
@@ -31,6 +32,9 @@ export function AppDemo({app}:{app:AiApp}){
   const isTextVideo=app.slug==="text-to-video";
   const isVoice=app.mode==="voice";
   const isImageText=app.slug==="text-to-image"||app.slug==="premium-image";
+  useEffect(()=>{
+    void api<{mock:boolean}>("/system").then(s=>setIsMock(s.mock)).catch(()=>{});
+  },[]);
   useEffect(()=>{
     const id=new URLSearchParams(window.location.search).get("repeat");
     if(!id||!/^[a-f0-9-]{36}$/i.test(id))return;
@@ -93,7 +97,7 @@ export function AppDemo({app}:{app:AiApp}){
     finally{setBusy(null);}
   }
   return <div className="generation-panel">
-    <div className="generation-heading"><h2>Создать</h2><span className="demo-chip">Тестовый режим</span></div>
+    <div className="generation-heading"><h2>Создать</h2><span className="demo-chip">{isMock?"Тестовый режим":"WaveSpeed API"}</span></div>
     {needsImage&&<div className="form-field">
       <label htmlFor="input-photo">Исходное изображение</label>
       <div className="upload-box">
@@ -146,6 +150,8 @@ export function AppDemo({app}:{app:AiApp}){
     </button>:<button className="button button-primary generate-button" type="button" disabled={busy!==null} onClick={()=>void calculate()}>
       {busy==="quote"?"Загружаем и рассчитываем…":"Рассчитать стоимость"}
     </button>}
-    <p className="disabled-note">В mock-режиме результат демонстрационный. Реальные генерации требуют настройки WaveSpeed API.</p>
+    <p className="disabled-note">{isMock?
+      "Mock: без расходов провайдера, результат — демонстрационный файл.":
+      "WaveSpeed live: запуск может потратить реальный баланс API-аккаунта. Точная цена подтверждается перед заказом."}</p>
   </div>;
 }

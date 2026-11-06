@@ -56,7 +56,7 @@ export function LibraryClient(){
         <p className="muted">Ваши результаты хранятся на нашем сервере, без публичных ссылок WaveSpeed.</p></div>
       <Link className="button button-secondary" href="/dashboard">К балансу и заказам</Link>
     </div>
-    <div className="library-filters" role="group" aria-label="Тип медиатека">
+    <div className="library-filters" role="group" aria-label="Тип медиатеки">
       {kinds.map(x=><button type="button" key={x.id} aria-pressed={kind===x.id}
         className={"library-filter "+(kind===x.id?"active":"")} onClick={()=>{setKind(x.id);setSelected(null);}}>{x.label}</button>)}
       <button type="button" className="library-refresh" disabled={busy} onClick={()=>void load(kind)}>Обновить</button>
