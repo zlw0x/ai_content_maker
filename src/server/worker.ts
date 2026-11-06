@@ -57,14 +57,16 @@ async function finish(job:Job){
     return;
   }
   if(result.status!=="completed")return;
-  const existing=await one<{id:string}>("SELECT id FROM media_assets WHERE job_id=$1 AND kind='output' AND deleted_at IS NULL LIMIT 1",[job.id]);
-  if(!existing){
-    if(config().WAVESPEED_MODE==="mock"){
-      await persistMockOutput(job.user_id,job.id);
-    }else{
-      if(result.outputs.length===0)throw new Error("Provider marked completed with no downloadable outputs");
-      // M1: first output only. Additional outputs will be handled in a future milestone.
-      await persistOutput(job.user_id,job.id,result.outputs[0]);
+  const existing=await db().query<{source_index:number}>("SELECT source_index FROM media_assets WHERE job_id=$1 AND kind='output' AND deleted_at IS NULL",[job.id]);
+  const stored=new Set(existing.rows.map(r=>r.source_index));
+  if(config().WAVESPEED_MODE==="mock"){
+    if(!stored.has(0))await persistMockOutput(job.user_id,job.id);
+  }else{
+    if(result.outputs.length===0||result.outputs.length>4)
+      throw new Error("Provider output count outside supported bounds (1-4)");
+    for(let index=0;index<result.outputs.length;index++){
+      if(stored.has(index))continue;
+      await persistOutput(job.user_id,job.id,result.outputs[index],index);
     }
   }
   await captureOrder(job.id);

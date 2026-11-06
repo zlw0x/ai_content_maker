@@ -46,3 +46,10 @@ test("Passwords are hashed with randomized salts",async()=>{
   assert.equal(await verifyPassword("Secure passphrase 123",a),true);
   assert.equal(await verifyPassword("wrong",a),false);
 });
+
+test("Premium image uses distinct higher-tier Seedream model",()=>{
+  const app=prepareApp("premium-image",{prompt:"Detailed studio product image",size:"1536*1024"});
+  assert.equal(app.modelId,"bytedance/seedream-v5.0-pro");
+  assert.equal(app.spec.build(app.input).aspect_ratio,"3:2");
+  assert.equal(app.spec.build(app.input).resolution,"1k");
+});

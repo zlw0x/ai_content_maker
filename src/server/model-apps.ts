@@ -22,8 +22,14 @@ export const modelSpecs: Record<string, ModelSpec> = {
     build:i=>({prompt:i.prompt,size:i.size,output_format:"jpeg"})
   },
   "premium-image": {
-    modelId:zImage,mode:"text",inputSchema:z.object({prompt,size}),
-    build:i=>({prompt:i.prompt,size:i.size,output_format:"png"})
+    modelId:"bytedance/seedream-v5.0-pro",mode:"text",inputSchema:z.object({prompt,size}),
+    build:i=>({
+      prompt:i.prompt,
+      aspect_ratio:i.size==="1536*1024"?"3:2":i.size==="1024*1536"?"2:3":"1:1",
+      resolution:"1k",
+      output_format:"png",
+      prompt_optimization_mode:"standard"
+    })
   },
   "photo-editor": {
     modelId:zImage,mode:"image",inputSchema:z.object({prompt,imageAssetId:imageRef,strength:z.number().min(0.1).max(0.9).default(0.6)}),

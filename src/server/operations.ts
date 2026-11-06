@@ -94,6 +94,11 @@ export async function createOrder(userId:string,raw:unknown,rawIdem:string|null)
       SELECT id,app_slug,model_id,input_json,amount_kopecks FROM price_quotes
       WHERE id=$1 AND user_id=$2 AND expires_at>now() FOR UPDATE`,[body.data.quoteId,userId])).rows[0];
     assert(quote&&quote.input_json,409,"QUOTE_EXPIRED","Расчёт цены истёк, запросите новый");
+    if(config().WAVESPEED_MODE==="live"){
+      // Refuse to spend a previously minted demo balance on real provider calls.
+      const demo=await c.query("SELECT id FROM payments WHERE user_id=$1 AND provider='dev' LIMIT 1",[userId]);
+      assert(!demo.rowCount,409,"DEMO_FUNDS_NOT_VALID","Используйте отдельный аккаунт и базу для реальных операций");
+    }
     const used=await c.query("SELECT id FROM generation_jobs WHERE quote_id=$1 LIMIT 1",[quote.id]);
     assert(!used.rowCount,409,"QUOTE_ALREADY_USED","Расчёт цены уже использован");
     const sum=(await c.query<{spent:string}>(`SELECT coalesce(sum(reserved_kopecks),0) AS spent FROM generation_jobs

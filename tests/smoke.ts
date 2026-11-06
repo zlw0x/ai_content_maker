@@ -67,7 +67,7 @@ async function main(){
   const image=await uploaded.json();
   const up=await api("/api/v1/quotes","POST",{appSlug:"upscale",input:{imageAssetId:image.id}});
   assert.equal(up.response.status,201,JSON.stringify(up.body));
-  const audio=await api("/api/v1/quotes","POST",{appSlug:"ai-voiceover",input:{text:"Добро пожаловать!",voice:"Calm_Woman"}});
+  const audio=await api("/api/v1/quotes","POST",{appSlug:"ai-voiceover",input:{text:"Добро пожаловать!",voice:"Russian_BrightHeroine"}});
   assert.equal(audio.response.status,201,JSON.stringify(audio.body));
   for(const item of [up,audio]){
     const o=await api("/api/v1/orders","POST",{quoteId:item.body.id},randomUUID());
