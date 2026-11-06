@@ -1,91 +1,84 @@
 # AI Content Maker
 
-Русскоязычный каталог AI-приложений. Backend — Next.js API + PostgreSQL + отдельный worker. Поддерживаются модельные адаптеры WaveSpeed, серверное ценообразование, учёт денег и адаптер ЮKassa/СБП. Все внешние платные операции **по умолчанию выключены**.
+Русскоязычный каталог из 10 AI-инструментов: изображения, редактирование фото, фото/текст → видео, реклама, русская озвучка и upscale. Backend: Next.js, PostgreSQL, отдельный worker. Предусмотрены WaveSpeed API и ЮKassa/СБП.
 
-## Быстрый запуск: backend в безопасном mock-режиме
+**Статус:** функциональный MVP в безопасном **mock-режиме**. Внешние API и реальные платежи по умолчанию отключены. «Генерации» в mock возвращают демонстрационный SVG, а не контент из нейросети.
 
-**Нужно:** Node.js 22+, npm, Docker + Compose.
+## Запуск (Docker)
+
+Требуется Docker Engine + Docker Compose.
 
 ```bash
+git clone https://github.com/zlw0x/ai_content_maker.git
+cd ai_content_maker
 cp .env.example .env
-# Change POSTGRES_PASSWORD and DATABASE_URL together in .env
-docker compose up -d db
-npm install
+# Измените POSTGRES_PASSWORD в .env (не коммитьте файл).
+docker compose up -d --build
+docker compose ps
+curl -fsS http://localhost:3000/api/v1/health/ready
+```
+
+Откройте **http://localhost:3000** на том же ПК. На VPS порт по умолчанию слушает только `127.0.0.1`; для удалённого теста используйте SSH-туннель или HTTPS reverse proxy.
+
+## Первый сценарий в браузере
+
+1. Открыть `/account`, создать учётную запись (пароль от 12 символов).
+2. В `/dashboard` нажать **«Получить тестовые 500 ₽»** — один раз на пользователя.
+3. В каталоге выбрать, например, «Генератор изображений»; ввести описание.
+4. Нажать **«Рассчитать стоимость»**. Сервер создаёт котировку с TTL 10 минут.
+5. Подтвердить заказ; деньги резервируются атомарно.
+6. Открывается `/dashboard`: дождаться статуса «Готово», скачать тестовый файл. История и остаток баланса доступны там же.
+
+Для инструментов на основе изображений используйте JPEG, PNG или WebP до 10 MB. В mock-режиме настоящий исходник не анализируется.
+
+## Доступные маршруты
+
+- `/` — каталог, поиск, категории
+- `/apps/[slug]` — формы 10 приложений
+- `/account` — регистрация и вход
+- `/dashboard` — тестовый баланс, история, статус и файлы
+- `/api/v1/` — авторизация, котировки, заказы, файлы, платежи
+- `/api/webhooks/` — callback WaveSpeed / ЮKassa
+
+## Режимы и безопасность
+
+| Настройка | Для локального MVP |
+|---|---|
+| `WAVESPEED_MODE` | `mock` |
+| `PAYMENT_MODE` | `disabled` |
+| `DEMO_CREDIT_ENABLED` | `true` |
+| `ALLOW_LIVE_PAYMENTS` | `false` |
+
+Тестовые деньги никогда не должны попадать в базу реального сервиса. Live-заказы дополнительно запрещены для пользователей с тестовыми пополнениями.
+
+Для live WaveSpeed нужны ключ, ограниченный бюджет, тесты реальных параметров моделей и `OUTPUT_HOST_ALLOWLIST` (точные CDN hostname). Реальное подключение платежей требует отдельной проверки и явного включения. **Не переводите демонстрационную базу и данные в production.**
+
+## Разработка
+
+Node.js 22+, PostgreSQL 17+:
+
+```bash
+npm ci
 npm run db:migrate
 npm run dev
-# in another terminal:
+# В другом терминале:
 npm run worker
+npm run test:unit
 ```
 
-Альтернативный способ — весь backend через Docker: `docker compose up --build -d` (web, worker, миграции и PostgreSQL), см. [инструкцию](docs/DEPLOYMENT.md).
+`npm run test:smoke` требует запущенные web, worker и PostgreSQL, а `npm run test:e2e` — установленный Playwright Chromium.
 
-Открой http://localhost:3000. Каталог всё ещё показывает UI-демо, пока фронтенд не подключён к новым backend endpoint. Backend уже доступен по `/api/v1/*`.
+## Документация
 
-Для тестирования через REST:
-1. `POST /api/v1/auth/register` JSON `{"email":"demo@example.com","password":"a-very-long-test-password"}`; сохраните HTTP-only cookie.
-2. `GET /api/v1/apps`, `GET /api/v1/wallet`.
-3. Локально зачислите тестовый баланс: `npm run dev:credit -- demo@example.com 50000` (500 ₽ **только** для mock-mode).
-4. `POST /api/v1/quotes`: `{"appSlug":"text-to-image","input":{"prompt":"Футуристический город"}}`.
-5. `POST /api/v1/orders`: `{"quoteId":"uuid из котировки"}`, с `Idempotency-Key: <новый UUID>`.
-6. `GET /api/v1/orders/{id}` — worker завершит задачу и вернёт `outputs[0].url`, по которому можно скачать тестовый SVG.
+- [Подробное развёртывание](docs/DEPLOYMENT.md)
+- [Backend и API](docs/BACKEND.md)
+- [Обзор ревью и исправления](docs/MVP_REVIEW.md)
+- [Архитектура](docs/ARCHITECTURE.md)
+- [Инварианты финансового учёта](docs/DATA_MODEL.md)
+- [Экономика](docs/PRICING.md)
+- [Безопасность](docs/SECURITY_COMPLIANCE.md)
+- [План этапов](docs/ROADMAP.md)
 
-Для проверки алгоритма и тестовых запросов: `npm run test:unit`, `npm run test:smoke` (последний требует запущенные сервер, worker и PostgreSQL).
+### Не готово для публичного коммерческого запуска
 
-## Endpoints
-
-```
-GET  /api/v1/health
-GET  /api/v1/health/ready
-GET  /api/v1/apps
-GET  /api/v1/apps/:slug
-POST /api/v1/auth/register
-POST /api/v1/auth/login
-POST /api/v1/auth/logout
-GET  /api/v1/auth/me
-POST /api/v1/assets                # multipart/form-data file=<png/jpg/webp>
-GET  /api/v1/assets/:id            # private download
-POST /api/v1/quotes                # server-side quote
-POST /api/v1/orders                # Idempotency-Key
-GET  /api/v1/orders
-GET  /api/v1/orders/:id
-GET  /api/v1/wallet
-POST /api/v1/topups                # disabled by default; Idempotency-Key
-GET  /api/v1/topups/:id
-POST /api/webhooks/wavespeed       # Standard Webhooks HMAC
-POST /api/webhooks/yookassa        # independently verified via provider GET
-```
-
-## Backend status
-
-| Component | State |
-|---|---|
-| PostgreSQL migrations, accounts and sessions | Implemented |
-| Local private input/output storage | Implemented (single-VPS mode) |
-| Server quotes, order idempotency, wallet ledger | Implemented |
-| Worker + submission uncertainty safety | Implemented; unknown jobs require manual reconciliation |
-| Mock provider end-to-end test | Implemented |
-| Live WaveSpeed adapters | Implemented for 10 scenarios; require funded API key and measured integration |
-| YooKassa SBP adapter | Implemented; disabled until explicitly enabled/configured |
-| Full UI integration | Not yet: forms still M0 demo |
-| Automated fiscal receipts & real refunds | Not implemented |
-| Multiple-output persistence | Not yet (worker stores first output only) |
-| Production-grade email verification & password reset | Not yet |
-| Horizontal scaling, object storage, observability | Not yet |
-
-**Do not treat this as production-ready financial software.** Security and operational controls need staging tests and review before serving real users or accepting actual money.
-
-## Documentation
-
-- [Backend implementation & API examples](docs/BACKEND.md)
-- [Product](docs/PRODUCT.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Data & financial rules](docs/DATA_MODEL.md)
-- [Pricing](docs/PRICING.md)
-- [Security checklist](docs/SECURITY_COMPLIANCE.md)
-- [Roadmap](docs/ROADMAP.md)
-
-## Data and secrets
-
-All secrets only in server environment. Do not use `NEXT_PUBLIC_` for API keys. `.env` and `private-media` are gitignored. Restrict DB port to localhost, use HTTPS, back up DB and file volume.
-
-The repo is currently public and has no OSI license. Copyright and deployment conditions require separate decisions.
+Live end-to-end тесты с реальными API, подтверждение email/сброс пароля, боевые платежи/возвраты/фискализация, масштабируемое хранилище, резервное восстановление и некоторые операционные защитные механизмы. Эти ограничения описаны в [review](docs/MVP_REVIEW.md) и [backend](docs/BACKEND.md).
