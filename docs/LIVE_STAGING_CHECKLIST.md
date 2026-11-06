@@ -82,3 +82,34 @@ docker compose exec -T worker npm run staging:credit -- staging-user@example.com
 
 ### Pricing contract correction
 The official WaveSpeed Pricing API presently documents `input` (singular), including full per-request parameters: https://wavespeed.ai/docs/pricing-api . Earlier guidance incorrectly mentioned `inputs`. Tests now assert the singular field; do not submit paid jobs before checking the price.
+
+
+## One-shot test of exactly one genuine generation (explicitly opt-in)
+
+The operator-only command `staging:one-shot` requires a **new, private, rotated** WaveSpeed API key in a **clean isolated staging database**. It does not run in GitHub CI and it is not scheduled. It generates unique test account credentials, checks provider balance and USD cost without submitting anything, requests a RUB quote from our own app, credits just the quoted amount in the staging wallet, submits **one** paid order through the normal API, polls the worker and checks the private download. It never resubmits an ambiguous paid request.
+
+Required safety configuration:
+
+```dotenv
+WAVESPEED_MODE=live
+PAYMENT_MODE=disabled
+ALLOW_LIVE_PAYMENTS=false
+DEMO_CREDIT_ENABLED=false
+STAGING_MANUAL_CREDIT_ENABLED=true
+WORKER_CONCURRENCY=1
+MAX_PROVIDER_COST_USD=0.01
+MAX_ORDER_KOPECKS=1500
+MAX_DAILY_SPEND_KOPECKS=1500
+OUTPUT_HOST_ALLOWLIST=YOUR_VERIFIED_EXACT_CDN_HOST
+```
+
+After `docker compose up -d --build` on staging:
+
+```bash
+docker compose exec -T worker npm run provider:check
+docker compose exec -T worker npm run staging:one-shot -- --allow-one-paid-inference
+```
+
+Keep the temporary credentials printed in the operator terminal private. If the job becomes `unknown` or times out, inspect its history; **do not run the one-shot command a second time** on that environment. The one-shot command refuses to run if any user already exists in the staging DB. Always verify the actual USD charge in the WaveSpeed dashboard afterward. The CDN allowlist must be confirmed; an incorrect hostname prevents our storage worker from fetching results.
+
+The script is intentionally gated and is not itself evidence that a real provider call has succeeded. 
