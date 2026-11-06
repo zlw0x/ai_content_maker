@@ -62,3 +62,8 @@ npm run build
 - Миграции сохраняют данные, но любая новая версия должна сначала проходить staging.
 
 Дополнительная информация: [Backend](BACKEND.md), [Review](MVP_REVIEW.md), [Security](SECURITY_COMPLIANCE.md).
+
+
+## Personal media and real upstream staging
+
+Media outputs now expire after `OUTPUT_RETENTION_DAYS=30`; uploaded references still expire after 7 days. Users browse private results via `/library`, which never sends upstream WaveSpeed URLs. Details and safe staging credit procedure: [LIVE_STAGING_CHECKLIST.md](LIVE_STAGING_CHECKLIST.md).

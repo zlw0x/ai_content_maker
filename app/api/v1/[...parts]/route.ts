@@ -4,7 +4,9 @@ import {apps} from "@/lib/catalog";
 import {modelSpecs} from "@/server/model-apps";
 import {currentUser,beginSession,endSession,sameOrigin} from "@/server/security";
 import {register,login,createQuote,createOrder,listOrders,getOrder,getUserWallet,createTopup,getTopup} from "@/server/operations";
-import {saveInput,userAsset,localMedia} from "@/server/media";
+import {saveInput} from "@/server/media";
+import {streamUserAsset} from "@/server/media-delivery";
+import {listLibrary,hideCompletedJob,deleteUserInput} from "@/server/library";
 import {db} from "@/server/db";
 import {config} from "@/server/config";
 import {grantDemoCredit} from "@/server/operations";
@@ -15,7 +17,7 @@ export const dynamic="force-dynamic";
 type Ctx={params:Promise<{parts:string[]}>};
 const uuid=z.string().uuid();
 const json=(value:unknown,status=200)=>NextResponse.json(value,{status,headers:{"Cache-Control":"no-store"}});
-const noStore={"Cache-Control":"private, no-store, max-age=0"};
+
 
 async function parseJson(request:NextRequest):Promise<unknown> {
   const length=Number(request.headers.get("content-length")??0);
@@ -40,17 +42,13 @@ async function getHandler(request:NextRequest,parts:string[]) {
   if(path==="auth/me")return json(await currentUser());
   const user=await currentUser();
   if(path==="wallet")return json(await getUserWallet(user.id));
+  if(path==="library")return json(await listLibrary(user.id,request.nextUrl.searchParams.get("kind"),request.nextUrl.searchParams.get("page")));
   if(path==="orders")return json({items:await listOrders(user.id)});
   if(parts[0]==="orders"&&parts.length===2)return json(await getOrder(user.id,parts[1]));
   if(parts[0]==="topups"&&parts.length===2)return json(await getTopup(user.id,parts[1]));
   if(parts[0]==="assets"&&parts.length===2){
     assert(uuid.safeParse(parts[1]).success,422,"INVALID_ID","Неверный ID файла");
-    const asset=await userAsset(user.id,parts[1]);
-    const bytes=await localMedia(asset.object_key);
-    return new NextResponse(new Uint8Array(bytes),{headers:{
-      ...noStore,"Content-Type":asset.media_type,"X-Content-Type-Options":"nosniff",
-      "Content-Disposition":'attachment; filename="asset-'+parts[1]+'"'
-    }});
+    return streamUserAsset(request,user.id,parts[1]);
   }
   throw new HttpError(404,"ENDPOINT_NOT_FOUND","Маршрут не найден");
 }
@@ -93,5 +91,17 @@ export async function GET(request:NextRequest,ctx:Ctx) {
 }
 export async function POST(request:NextRequest,ctx:Ctx) {
   try{return await postHandler(request,(await ctx.params).parts);}
+  catch(e){const info=publicError(e);return json(info.body,info.status);}
+}
+
+async function deleteHandler(request:NextRequest,parts:string[]){
+  sameOrigin(request);
+  const user=await currentUser();
+  if(parts.length===2&&parts[0]==="library")return json(await hideCompletedJob(user.id,parts[1]));
+  if(parts.length===2&&parts[0]==="assets")return json(await deleteUserInput(user.id,parts[1]));
+  throw new HttpError(404,"ENDPOINT_NOT_FOUND","Маршрут не найден");
+}
+export async function DELETE(request:NextRequest,ctx:Ctx) {
+  try{return await deleteHandler(request,(await ctx.params).parts);}
   catch(e){const info=publicError(e);return json(info.body,info.status);}
 }

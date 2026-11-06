@@ -56,7 +56,8 @@ export function DashboardClient(){
   return <div className="dashboard">
     <div className="dashboard-header">
       <div><span className="section-kicker">ЛИЧНОЕ ПРОСТРАНСТВО</span><h1>Мои генерации</h1><p className="muted">{user?.email}</p></div>
-      <button type="button" className="button button-secondary" disabled={busy} onClick={()=>void logout()}>Выйти</button>
+      <div className="library-actions"><Link className="button button-primary" href="/library">Моя медиатека</Link>
+      <button type="button" className="button button-secondary" disabled={busy} onClick={()=>void logout()}>Выйти</button></div>
     </div>
     {error&&<p className="form-error" role="alert">{error}</p>}
     <div className="wallet-grid">
@@ -90,6 +91,8 @@ export function DashboardClient(){
         </>}
       </article>)}
     </div>}
-    <p className="small-note">Статусы обновляются примерно раз в 5 секунд. В тестовом режиме результат — демонстрационный файл, не генерация нейросети.</p>
+    <p className="small-note">{system?.mock?
+      "Статусы обновляются примерно раз в 5 секунд. Mock-результат — демонстрационный файл, не генерация нейросети.":
+      "Статусы обновляются примерно раз в 5 секунд. В live-режиме запросы оплачиваются из общего WaveSpeed API-аккаунта проекта."}</p>
   </div>;
 }

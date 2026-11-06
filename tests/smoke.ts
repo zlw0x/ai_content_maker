@@ -83,9 +83,52 @@ async function main(){
   const after=await api("/api/v1/wallet");
   assert.equal(after.body.reservedKopecks,0);
   assert.equal(after.body.availableKopecks,credit-quote.body.amountKopecks-up.body.amountKopecks-audio.body.amountKopecks);
+
+  // Full tenant-isolation test: another authenticated user cannot inspect,
+  // download, delete or reuse another user's references or results.
+  const ownerCookie=cookie;
+  const ownerJob=await api("/api/v1/orders/"+order.body.id);
+  assert.equal(ownerJob.response.status,200);
+  assert.equal(ownerJob.body.repeatInput.prompt,"An abstract electric blue sculpture");
+  assert.equal(JSON.stringify(ownerJob.body.repeatInput).includes("mock://"),false);
+  const gallery=await api("/api/v1/library?kind=image&page=0");
+  assert.equal(gallery.response.status,200);
+  assert.ok(gallery.body.items.some((entry:{id:string})=>entry.id===order.body.id));
+  const assetUrl=finished.body.outputs[0].url as string;
+  const ranged=await fetch(origin+assetUrl,{headers:{Cookie:ownerCookie,Range:"bytes=0-9"}});
+  assert.equal(ranged.status,206);
+  assert.equal(ranged.headers.get("content-range")?.startsWith("bytes 0-9/"),true);
+  assert.equal((await ranged.arrayBuffer()).byteLength,10);
+  const svgInline=await fetch(origin+assetUrl+"?view=1",{headers:{Cookie:ownerCookie}});
+  assert.equal(svgInline.headers.get("content-disposition")?.startsWith("attachment"),true);
+  const badRange=await fetch(origin+assetUrl,{headers:{Cookie:ownerCookie,Range:"bytes=100000-"}});
+  assert.equal(badRange.status,416);
+
+  const stranger=await api("/api/v1/auth/register","POST",{
+    email:"stranger-"+randomUUID()+"@example.invalid",password:"Another test Password 2026!"
+  });
+  assert.equal(stranger.response.status,201);
+  cookie=stranger.response.headers.get("set-cookie")?.split(";")[0]??"";
+  assert.notEqual(cookie,ownerCookie);
+  assert.equal((await api("/api/v1/library")).body.items.length,0);
+  assert.equal((await api("/api/v1/orders/"+order.body.id)).response.status,404);
+  assert.equal((await fetch(origin+assetUrl,{headers:{Cookie:cookie}})).status,404);
+  assert.equal((await api("/api/v1/library/"+order.body.id,"DELETE")).response.status,404);
+  assert.equal((await fetch(origin+"/api/v1/assets/"+image.id,{headers:{Cookie:cookie}})).status,404);
+  const crossQuote=await api("/api/v1/quotes","POST",{appSlug:"upscale",input:{imageAssetId:image.id}});
+  assert.equal(crossQuote.response.status,404);
+  cookie=ownerCookie;
+  const deleted=await api("/api/v1/library/"+order.body.id,"DELETE");
+  assert.equal(deleted.response.status,200);
+  assert.equal((await api("/api/v1/orders/"+order.body.id)).response.status,404);
+  assert.equal((await fetch(origin+assetUrl,{headers:{Cookie:ownerCookie}})).status,404);
+  assert.equal((await api("/api/v1/library")).body.items.some((x:{id:string})=>x.id===order.body.id),false);
+  const deleteInput=await api("/api/v1/assets/"+image.id,"DELETE");
+  assert.equal(deleteInput.response.status,200,JSON.stringify(deleteInput.body));
+  assert.equal((await fetch(origin+"/api/v1/assets/"+image.id,{headers:{Cookie:ownerCookie}})).status,404);
   const bad=await api("/api/v1/quotes","POST",{appSlug:"text-to-image",input:{prompt:"a"}});
   assert.equal(bad.response.status,422);
-  console.log("Smoke OK — account, quote, wallet, idempotent job, mocked output, access control");
+  console.log("Smoke OK — tenant-isolated media library, streaming Range, deletion, repeat metadata and financial workflow");
   await db().end();
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

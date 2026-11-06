@@ -37,9 +37,9 @@ export async function inputForQuote(userId:string,id:string):Promise<{buffer:Buf
   const content=await fs.readFile(path.join(config().STORAGE_DIR,row.object_key));
   return {buffer:content,mime:row.media_type,name:id+(row.media_type==="image/png"?".png":row.media_type==="image/webp"?".webp":".jpg")};
 }
-export async function userAsset(userId:string,id:string):Promise<{object_key:string;media_type:string}> {
-  const row=await one<{object_key:string;media_type:string}>(`
-    SELECT object_key,media_type FROM media_assets WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL
+export async function userAsset(userId:string,id:string):Promise<{object_key:string;media_type:string;byte_size:string}> {
+  const row=await one<{object_key:string;media_type:string;byte_size:string}>(`
+    SELECT object_key,media_type,byte_size FROM media_assets WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL
     AND (expires_at IS NULL OR expires_at>now())
   `,[id,userId]);
   assert(row,404,"FILE_NOT_FOUND","Файл не найден");
@@ -94,8 +94,8 @@ export async function persistOutput(userId:string,jobId:string,outputUrl:string,
   await fs.mkdir(path.dirname(full),{recursive:true});
   await fs.writeFile(full,body,{flag:"wx",mode:0o600});
   try {
-    await db().query("INSERT INTO media_assets(id,user_id,job_id,kind,object_key,media_type,byte_size,source_index,expires_at) VALUES($1,$2,$3,'output',$4,$5,$6,$7,now()+interval '7 days')",
-    [id,userId,jobId,key,type,body.length,sourceIndex]);
+    await db().query("INSERT INTO media_assets(id,user_id,job_id,kind,object_key,media_type,byte_size,source_index,expires_at) VALUES($1,$2,$3,'output',$4,$5,$6,$7,now()+($8::int * interval '1 day'))",
+    [id,userId,jobId,key,type,body.length,sourceIndex,config().OUTPUT_RETENTION_DAYS]);
   }catch(error){await fs.unlink(full).catch(()=>{});throw error;}
   return id;
 }
@@ -106,7 +106,7 @@ export async function persistMockOutput(userId:string,jobId:string):Promise<stri
   const full=path.join(config().STORAGE_DIR,key);
   await fs.mkdir(path.dirname(full),{recursive:true});
   await fs.writeFile(full,body,{flag:"wx",mode:0o600});
-  await db().query("INSERT INTO media_assets(id,user_id,job_id,kind,object_key,media_type,byte_size,expires_at) VALUES($1,$2,$3,'output',$4,'image/svg+xml',$5,now()+interval '7 days')",
-    [id,userId,jobId,key,body.length]);
+  await db().query("INSERT INTO media_assets(id,user_id,job_id,kind,object_key,media_type,byte_size,expires_at) VALUES($1,$2,$3,'output',$4,'image/svg+xml',$5,now()+($6::int * interval '1 day'))",
+    [id,userId,jobId,key,body.length,config().OUTPUT_RETENTION_DAYS]);
   return id;
 }

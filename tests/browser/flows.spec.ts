@@ -20,6 +20,15 @@ test("register, top up mock balance, request job, download result",async({page})
   await expect(page.getByText("Готово").first()).toBeVisible({timeout:30000});
   await page.getByRole("button",{name:"Показать результат"}).first().click();
   await expect(page.getByRole("link",{name:/Скачать image/})).toBeVisible();
+  await page.goto("/library");
+  await expect(page.getByRole("heading",{name:"Моя медиатека"})).toBeVisible();
+  await expect(page.getByText("An elegant electric scooter in a neon studio")).toBeVisible();
+  await page.getByRole("button",{name:/Открыть работу/}).first().click();
+  await expect(page.getByRole("link",{name:"Скачать оригинал"})).toBeVisible();
+  await expect(page.getByRole("link",{name:"Повторить с параметрами"})).toBeVisible();
+  await page.getByRole("button",{name:"Удалить из медиатеки"}).click();
+  await page.getByRole("button",{name:"Подтвердить удаление"}).click();
+  await expect(page.getByText("An elegant electric scooter in a neon studio")).toHaveCount(0);
 
   // Check the real browser upload path for image-only applications.
   await page.goto("/apps/upscale");

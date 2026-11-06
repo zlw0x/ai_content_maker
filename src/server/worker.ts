@@ -1,18 +1,19 @@
 import {config} from "./config";
 import {db,one,transaction} from "./db";
-import {submitPrediction,getPrediction} from "./wavespeed";
+import {submitPrediction,getPrediction,providerPrice} from "./wavespeed";
+import Decimal from "decimal.js";
 import {captureOrder,failAndRelease} from "./wallet";
 import {persistOutput,persistMockOutput} from "./media";
 import {reconcileTopup} from "./operations";
 import {promises as fs} from "node:fs";
 import path from "node:path";
 
-type Job={id:string;user_id:string;model_id:string;provider_prediction_id:string|null;status:string;input_json:Record<string,unknown>};
+type Job={id:string;user_id:string;model_id:string;provider_prediction_id:string|null;status:string;input_json:Record<string,unknown>;provider_cost_usd:string};
 
 async function claimQueued():Promise<Job|null> {
   return transaction(async c=>{
     // This project runs exactly one worker instance. Each task gets at most one submit attempt.
-    const r=await c.query<Job>(`SELECT j.id,j.user_id,j.model_id,j.provider_prediction_id,j.status,q.input_json
+    const r=await c.query<Job>(`SELECT j.id,j.user_id,j.model_id,j.provider_prediction_id,j.status,q.input_json,q.provider_cost_usd
       FROM generation_jobs j JOIN price_quotes q ON j.quote_id=q.id
       WHERE j.status='queued' ORDER BY j.created_at ASC FOR UPDATE OF j SKIP LOCKED LIMIT 1`);
     if(!r.rows.length)return null;
@@ -22,6 +23,22 @@ async function claimQueued():Promise<Job|null> {
   });
 }
 async function submit(job:Job) {
+  // Validate the complete provider request immediately before the paid submission.
+  // Any pricing error or increased cost fails closed: no paid POST is attempted.
+  if(config().WAVESPEED_MODE==="live"){
+    try{
+      const fresh=new Decimal(await providerPrice(job.model_id,job.input_json));
+      const quoted=new Decimal(job.provider_cost_usd);
+      if(!fresh.isFinite()||fresh.isNegative()||fresh.gt(quoted)||fresh.gt(config().MAX_PROVIDER_COST_USD)){
+        await failAndRelease(job.id,"UPSTREAM_PRICE_CHANGED");
+        return;
+      }
+    }catch(error){
+      await failAndRelease(job.id,"UPSTREAM_PRICE_NOT_VERIFIED");
+      console.error("Refused paid submit without fresh quote",job.id,error instanceof Error?error.message:"unknown");
+      return;
+    }
+  }
   try {
     const providerId=await submitPrediction(job.model_id,job.input_json);
     await db().query(`UPDATE generation_jobs SET provider_prediction_id=$2,status='processing',
@@ -40,7 +57,7 @@ async function submit(job:Job) {
 }
 async function pollOne():Promise<Job|null> {
   return transaction(async c=>{
-    const r=await c.query<Job>(`SELECT j.id,j.user_id,j.model_id,j.provider_prediction_id,j.status,q.input_json
+    const r=await c.query<Job>(`SELECT j.id,j.user_id,j.model_id,j.provider_prediction_id,j.status,q.input_json,q.provider_cost_usd
       FROM generation_jobs j JOIN price_quotes q ON j.quote_id=q.id
       WHERE j.status='processing' AND (j.last_polled_at IS NULL OR j.last_polled_at<now()-interval '5 seconds')
       ORDER BY j.last_polled_at NULLS FIRST,j.created_at ASC FOR UPDATE OF j SKIP LOCKED LIMIT 1`);
@@ -81,11 +98,12 @@ async function reconcilePayments(){
 }
 async function expireMedia(){
   const r=await db().query<{id:string;object_key:string}>(`SELECT id,object_key FROM media_assets
-    WHERE expires_at<now() AND deleted_at IS NULL ORDER BY expires_at LIMIT 40`);
+    WHERE purged_at IS NULL AND ((expires_at<now()) OR deleted_at IS NOT NULL)
+    ORDER BY expires_at NULLS LAST LIMIT 40`);
   for(const row of r.rows){
     try{
       await fs.unlink(path.join(config().STORAGE_DIR,row.object_key)).catch(e=>{if(e.code!=="ENOENT")throw e;});
-      await db().query("UPDATE media_assets SET deleted_at=now() WHERE id=$1",[row.id]);
+      await db().query("UPDATE media_assets SET deleted_at=coalesce(deleted_at,now()),purged_at=now() WHERE id=$1",[row.id]);
     }catch(error){console.error("Failed media cleanup",row.id,error);}
   }
 }
