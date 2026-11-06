@@ -4,6 +4,9 @@ import {prepareApp,modelSpecs} from "../src/server/model-apps";
 import {apps} from "../src/lib/catalog";
 import {inputDigest,quoteKopecks} from "../src/server/pricing";
 import {hashPassword,verifyPassword} from "../src/server/security";
+import {parseRange} from "../src/server/media-delivery";
+import {priceRequestBody} from "../src/server/wavespeed";
+import {classifyApp} from "../src/server/library";
 
 process.env.DATABASE_URL="postgresql://test:test@localhost:5432/test";
 process.env.FX_RUB_PER_USD="90";
@@ -52,4 +55,26 @@ test("Premium image uses distinct higher-tier Seedream model",()=>{
   assert.equal(app.modelId,"bytedance/seedream-v5.0-pro");
   assert.equal(app.spec.build(app.input).aspect_ratio,"3:2");
   assert.equal(app.spec.build(app.input).resolution,"1k");
+});
+
+test("Pricing API receives the complete request under inputs (plural)",()=>{
+  assert.deepEqual(priceRequestBody("wavespeed-ai/z-image/turbo",{prompt:"Hello",size:"1024*1024"}),{
+    model_id:"wavespeed-ai/z-image/turbo",inputs:{prompt:"Hello",size:"1024*1024"}
+  });
+  assert.equal("input" in priceRequestBody("a",{prompt:"x"}),false);
+});
+test("Media Range parser supports seek and suffix but rejects multi-range",()=>{
+  assert.deepEqual(parseRange("bytes=0-9",100),{start:0,end:9});
+  assert.deepEqual(parseRange("bytes=90-",100),{start:90,end:99});
+  assert.deepEqual(parseRange("bytes=-10",100),{start:90,end:99});
+  assert.deepEqual(parseRange("bytes=90-999",100),{start:90,end:99});
+  assert.equal(parseRange("bytes=100-",100),null);
+  assert.equal(parseRange("bytes=0-1,4-8",100),null);
+  assert.equal(parseRange("bytes=-0",100),null);
+  assert.equal(parseRange("bytes=3-2",100),null);
+});
+test("Gallery media kind uses stable app mapping independent of mock MIME",()=>{
+  assert.equal(classifyApp("photo-to-video"),"video");
+  assert.equal(classifyApp("ai-voiceover"),"audio");
+  assert.equal(classifyApp("text-to-image"),"image");
 });
