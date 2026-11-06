@@ -1,0 +1,34 @@
+import {test,expect} from "@playwright/test";
+import {randomUUID} from "node:crypto";
+
+test("register, top up mock balance, request job, download result",async({page})=>{
+  await page.goto("/account");
+  await page.getByRole("button",{name:"Нет аккаунта? Зарегистрироваться"}).click();
+  await page.getByLabel("Email").fill("ui-"+randomUUID()+"@example.invalid");
+  await page.getByLabel("Пароль").fill("Test Browser Password 2026!");
+  await page.getByRole("button",{name:"Зарегистрироваться"}).click();
+  await expect(page).toHaveURL(/\/dashboard/);
+  await expect(page.getByText("Мои генерации")).toBeVisible();
+  await page.getByRole("button",{name:"Получить тестовые 500 ₽"}).click();
+  await expect(page.getByText(/500,00/)).toBeVisible();
+  await page.goto("/apps/text-to-image");
+  await page.getByLabel("Опиши желаемый результат").fill("An elegant electric scooter in a neon studio");
+  await page.getByRole("button",{name:"Рассчитать стоимость"}).click();
+  await expect(page.getByRole("button",{name:/Запустить за/})).toBeVisible();
+  await page.getByRole("button",{name:/Запустить за/}).click();
+  await expect(page).toHaveURL(/\/dashboard/);
+  await expect(page.getByText("Готово").first()).toBeVisible({timeout:30000});
+  await page.getByRole("button",{name:"Показать результат"}).first().click();
+  await expect(page.getByRole("link",{name:/Скачать image/})).toBeVisible();
+});
+
+test("mobile catalog search and category filters",async({page})=>{
+  await page.setViewportSize({width:390,height:844});
+  await page.goto("/");
+  await page.getByRole("button",{name:"Видео",exact:true}).click();
+  await expect(page.getByText("Найдено: 2 из 10")).toBeVisible();
+  await page.getByRole("searchbox",{name:"Поиск приложений"}).fill("текст");
+  await expect(page.getByText("Найдено: 1 из 10")).toBeVisible();
+  await page.getByText("Текст в видео",{exact:true}).first().click();
+  await expect(page.getByRole("heading",{name:"Текст в видео",exact:true})).toBeVisible();
+});

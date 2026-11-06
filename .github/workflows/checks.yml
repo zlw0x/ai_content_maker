@@ -55,6 +55,8 @@ jobs:
         run: |
           cp .env.example .env
           docker compose config >/dev/null
+      - name: Install Chromium for UI test
+        run: npx playwright install --with-deps chromium
       - name: Smoke full backend in safe mock mode
         run: |
           npm run start > /tmp/ai-web.log 2>&1 &
@@ -67,3 +69,4 @@ jobs:
             sleep 1
           done
           npm run test:smoke
+          npm run test:e2e
