@@ -67,3 +67,8 @@ npm run build
 ## Personal media and real upstream staging
 
 Media outputs now expire after `OUTPUT_RETENTION_DAYS=30`; uploaded references still expire after 7 days. Users browse private results via `/library`, which never sends upstream WaveSpeed URLs. Details and safe staging credit procedure: [LIVE_STAGING_CHECKLIST.md](LIVE_STAGING_CHECKLIST.md).
+
+
+## Тест полного Docker Compose без реальных расходов
+
+Новый CI job `compose-smoke` запускает PostgreSQL 17, миграции, готовый Next.js Docker-образ и worker; затем выполняет `npm run test:smoke` и `npm run test:e2e` по HTTP через контейнерный runtime. Это проверяет сеть между сервисами, создание тестового пользователя, права на файлы и финансовый ledger в mock режиме. Актуальный аудит: [AUDIT_2026-11-06.md](AUDIT_2026-11-06.md).
