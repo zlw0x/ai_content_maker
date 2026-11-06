@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ai_content_maker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Create .env with a secure POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-ai_content_maker}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ai_content_maker} -d ${POSTGRES_DB:-ai_content_maker}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
