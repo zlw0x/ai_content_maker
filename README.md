@@ -36,7 +36,8 @@ curl -fsS http://localhost:3000/api/v1/health/ready
 - `/` — каталог, поиск, категории
 - `/apps/[slug]` — формы 10 приложений
 - `/account` — регистрация и вход
-- `/dashboard` — тестовый баланс, история, статус и файлы
+- `/dashboard` — тестовый баланс, история и статусы заказов
+- `/library` — приватная медиатека: галерея, защищённые превью, потоковое видео/аудио, скачивание, повтор и удаление
 - `/api/v1/` — авторизация, котировки, заказы, файлы, платежи
 - `/api/webhooks/` — callback WaveSpeed / ЮKassa
 
@@ -82,3 +83,8 @@ npm run test:unit
 ### Не готово для публичного коммерческого запуска
 
 Live end-to-end тесты с реальными API, подтверждение email/сброс пароля, боевые платежи/возвраты/фискализация, масштабируемое хранилище, резервное восстановление и некоторые операционные защитные механизмы. Эти ограничения описаны в [review](docs/MVP_REVIEW.md) и [backend](docs/BACKEND.md).
+
+
+## Live staging and private library
+
+See [WaveSpeed live staging and user-owned media instructions](docs/LIVE_STAGING_CHECKLIST.md). Do not deploy a key previously pasted into chat. A true provider API test must use a newly rotated key from a private server-side secret.
