@@ -28,7 +28,7 @@ test("register, top up mock balance, request job, download result",async({page})
   await page.getByRole("button",{name:"Рассчитать стоимость"}).click();
   await expect(page.getByRole("button",{name:/Запустить за/})).toBeVisible();
   await page.getByRole("button",{name:/Запустить за/}).click();
-  await expect(page).toHaveURL(/\\/dashboard/);
+  await expect(page).toHaveURL(/dashboard/);
   await expect(page.getByText("Готово").first()).toBeVisible({timeout:30000});
 });
 
