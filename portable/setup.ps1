@@ -37,7 +37,7 @@ if (-not (Test-Path -LiteralPath $envPath)) {
     $templateText = [IO.File]::ReadAllText($template)
     $templateText = $templateText.Replace("REPLACE_WITH_GENERATED_PASSWORD", $password)
     $templateText = $templateText.Replace("REPLACE_WITH_ROTATED_WAVESPEED_KEY", $key)
-    [IO.File]::WriteAllText($envPath, $templateText, (New-Object System.Text.UTF8Encoding($false)))
+    [IO.File]::WriteAllText($envPath, $templateText, ([System.Text.UTF8Encoding]::new($false)))
   } finally {
     if ($ptr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
     $key = $null
