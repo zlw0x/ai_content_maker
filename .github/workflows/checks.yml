@@ -34,6 +34,15 @@ jobs:
           node-version: "22"
       - name: Install
         run: npm install --no-audit --no-fund
+      - name: Print dependency lock in indexed chunks (temporary for PR)
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const data = JSON.stringify(JSON.parse(fs.readFileSync('package-lock.json','utf8')));
+          for (let i=0,n=0;i<data.length;i+=3000,n++) {
+            console.log('LOCK_CHUNK:'+n+':'+data.slice(i,i+3000));
+          }
+          NODE
       - name: Migrate
         run: npm run db:migrate
       - name: Typecheck
