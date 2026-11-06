@@ -84,9 +84,12 @@ export async function createOrder(userId:string,raw:unknown,rawIdem:string|null)
   return transaction(async c=>{
     // Serialize identical user idempotency keys before querying existing orders.
     await c.query("SELECT pg_advisory_xact_lock(hashtext($1))",[userId+":"+rawIdem]);
-    const existing=await c.query(`SELECT id,status,reserved_kopecks FROM generation_jobs
+    const existing=await c.query(`SELECT id,status,reserved_kopecks,quote_id FROM generation_jobs
       WHERE user_id=$1 AND client_idempotency_key=$2`,[userId,rawIdem]);
-    if(existing.rowCount) return {id:existing.rows[0].id,status:existing.rows[0].status,priceKopecks:Number(existing.rows[0].reserved_kopecks),idempotent:true};
+    if(existing.rowCount) {
+      assert(existing.rows[0].quote_id===body.data.quoteId,409,"IDEMPOTENCY_CONFLICT","Ключ использован для другого заказа");
+      return {id:existing.rows[0].id,status:existing.rows[0].status,priceKopecks:Number(existing.rows[0].reserved_kopecks),idempotent:true};
+    }
     const quote=(await c.query<{id:string;app_slug:string;model_id:string;input_json:unknown;amount_kopecks:string}>(`
       SELECT id,app_slug,model_id,input_json,amount_kopecks FROM price_quotes
       WHERE id=$1 AND user_id=$2 AND expires_at>now() FOR UPDATE`,[body.data.quoteId,userId])).rows[0];

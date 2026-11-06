@@ -22,7 +22,8 @@ export async function creditConfirmedPayment(client:PoolClient,paymentId:string,
   const credit=await client.query(`INSERT INTO wallet_ledger(user_id,event_key,kind,delta_available_kopecks,payment_id)
     VALUES($1,$2,'topup',$3,$4) ON CONFLICT(user_id,event_key) DO NOTHING RETURNING id`,[userId,"topup:"+paymentId,amount,paymentId]);
   if(credit.rowCount===0)return false;
-  await client.query("UPDATE wallet_accounts SET available_kopecks=available_kopecks+$2,version=version+1,updated_at=now() WHERE user_id=$1",[userId,amount]);
+  const updated=await client.query("UPDATE wallet_accounts SET available_kopecks=available_kopecks+$2,version=version+1,updated_at=now() WHERE user_id=$1",[userId,amount]);
+  if(updated.rowCount!==1)throw new HttpError(500,"WALLET_INVARIANT","Не удалось зачислить платёж");
   return true;
 }
 export async function reserveForOrder(client:PoolClient,userId:string,jobId:string,amount:number):Promise<void> {

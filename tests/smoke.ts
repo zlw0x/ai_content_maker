@@ -38,6 +38,10 @@ async function main(){
   assert.equal(order.response.status,201,JSON.stringify(order.body));
   const duplicated=await api("/api/v1/orders","POST",body,key);
   assert.equal(duplicated.body.id,order.body.id);
+  const differentQuote=await api("/api/v1/quotes","POST",{appSlug:"text-to-image",input:{prompt:"Another valid abstract city"}});
+  assert.equal(differentQuote.response.status,201);
+  const conflict=await api("/api/v1/orders","POST",{quoteId:differentQuote.body.id},key);
+  assert.equal(conflict.response.status,409);
   const wallet=await api("/api/v1/wallet");
   assert.equal(wallet.body.availableKopecks+wallet.body.reservedKopecks,credit);
   let finished;
