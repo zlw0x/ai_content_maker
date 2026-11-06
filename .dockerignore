@@ -1,0 +1,10 @@
+.git
+.github
+node_modules
+.next
+private-media
+.env
+.env.*
+!.env.example
+*.log
+coverage

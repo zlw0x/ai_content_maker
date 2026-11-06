@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {prepareApp} from "../src/server/model-apps";
+import {prepareApp,modelSpecs} from "../src/server/model-apps";
+import {apps} from "../src/lib/catalog";
 import {inputDigest,quoteKopecks} from "../src/server/pricing";
 import {hashPassword,verifyPassword} from "../src/server/security";
 
@@ -16,6 +17,16 @@ test("Text-to-image uses a vetted model and drops unrecognized properties",()=>{
 });
 test("Video models restrict duration and quality",()=>{
   assert.throws(()=>prepareApp("photo-to-video",{prompt:"Move camera",imageAssetId:"fa6b22f6-d683-43ad-af25-fda2d884f944",duration:90,resolution:"1080p"}));
+});
+test("All ten catalog apps have an allowlisted model adapter",()=>{
+  assert.equal(apps.length,10);
+  for(const item of apps)assert.ok(modelSpecs[item.slug],item.slug);
+});
+test("Voiceover allows only predefined voice IDs",()=>{
+  const spec=prepareApp("ai-voiceover",{text:"Привет, мир!",voice:"Calm_Woman",speed:1});
+  assert.equal(spec.modelId,"minimax/speech-2.6-hd");
+  assert.equal(spec.spec.build(spec.input).language_boost,"Russian");
+  assert.throws(()=>prepareApp("ai-voiceover",{text:"Привет",voice:"arbitrary-id"}));
 });
 test("Unknown apps cannot call arbitrary models",()=>{
   assert.throws(()=>prepareApp("provider/secret",{prompt:"hello"}));

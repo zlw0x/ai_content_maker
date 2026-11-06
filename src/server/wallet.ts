@@ -36,7 +36,8 @@ export async function captureOrder(jobId:string):Promise<boolean> {
     const result=await c.query<{user_id:string;reserved_kopecks:string;status:string}>(`SELECT user_id,reserved_kopecks,status FROM generation_jobs WHERE id=$1 FOR UPDATE`,[jobId]);
     const job=result.rows[0]; if(!job||job.status!=="processing")return false;
     const amount=Number(job.reserved_kopecks);
-    await c.query(`UPDATE wallet_accounts SET reserved_kopecks=reserved_kopecks-$2,version=version+1,updated_at=now() WHERE user_id=$1 AND reserved_kopecks>=$2`,[job.user_id,amount]);
+    const updated=await c.query(`UPDATE wallet_accounts SET reserved_kopecks=reserved_kopecks-$2,version=version+1,updated_at=now() WHERE user_id=$1 AND reserved_kopecks>=$2`,[job.user_id,amount]);
+    if(updated.rowCount!==1)throw new HttpError(500,"WALLET_INVARIANT","Несогласованное состояние резерва");
     await ledger(c,job.user_id,"capture:"+jobId,"capture",0,-amount,null,jobId);
     await c.query("UPDATE generation_jobs SET status='completed',finished_at=now(),updated_at=now() WHERE id=$1",[jobId]);
     return true;
@@ -47,8 +48,9 @@ export async function failAndRelease(jobId:string, reason:string):Promise<boolea
     const result=await c.query<{user_id:string;reserved_kopecks:string;status:string}>(`SELECT user_id,reserved_kopecks,status FROM generation_jobs WHERE id=$1 FOR UPDATE`,[jobId]);
     const job=result.rows[0]; if(!job||["completed","failed","unknown"].includes(job.status))return false;
     const amount=Number(job.reserved_kopecks);
-    await c.query(`UPDATE wallet_accounts SET available_kopecks=available_kopecks+$2,reserved_kopecks=reserved_kopecks-$2,version=version+1,updated_at=now()
+    const updated=await c.query(`UPDATE wallet_accounts SET available_kopecks=available_kopecks+$2,reserved_kopecks=reserved_kopecks-$2,version=version+1,updated_at=now()
       WHERE user_id=$1 AND reserved_kopecks >= $2`,[job.user_id,amount]);
+    if(updated.rowCount!==1)throw new HttpError(500,"WALLET_INVARIANT","Несогласованное состояние резерва");
     await ledger(c,job.user_id,"release:"+jobId,"release",amount,-amount,null,jobId);
     await c.query("UPDATE generation_jobs SET status='failed',error_code=$2,finished_at=now(),updated_at=now() WHERE id=$1",[jobId,reason.slice(0,128)]);
     return true;

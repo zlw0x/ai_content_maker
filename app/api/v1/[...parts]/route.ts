@@ -54,7 +54,13 @@ async function getHandler(request:NextRequest,parts:string[]) {
 async function postHandler(request:NextRequest,parts:string[]){
   sameOrigin(request);
   const path=parts.join("/");
-  if(path==="auth/register")return json({user:await register(await parseJson(request))},201);
+  if(path==="auth/register"){
+    const key="signup:"+(request.headers.get("x-real-ip")??"unknown");
+    const {rateLimit,recordFailure}=await import("@/server/security");
+    await rateLimit(key,10);
+    await recordFailure(key);
+    return json({user:await register(await parseJson(request))},201);
+  }
   if(path==="auth/login"){
     // Do not trust arbitrary X-Forwarded-For unless a trusted reverse proxy sanitizes it.
     const ip=request.headers.get("x-real-ip")??"unknown";

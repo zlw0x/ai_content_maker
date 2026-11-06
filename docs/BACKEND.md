@@ -18,8 +18,8 @@
 | product-shot | same | workflow preset |
 | photo-to-video | wavespeed-ai/wan-2.2/image-to-video | integrated |
 | text-to-video | wavespeed-ai/wan-2.2/t2v-480p | integrated |
-| ai-voiceover | - | disabled: select validated audio model later |
-| upscale | - | disabled: select validated upscale model later |
+| ai-voiceover | minimax/speech-2.6-hd | integrated (RU voice IDs need quality testing) |
+| upscale | wavespeed-ai/real-esrgan | integrated |
 
 Live adapter integration is unverified without a funded WaveSpeed account. The API docs may change; check model schemas before money is spent.
 

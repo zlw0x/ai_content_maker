@@ -51,6 +51,16 @@ export const modelSpecs: Record<string, ModelSpec> = {
     inputSchema:z.object({prompt,duration:motionDuration,orientation:z.enum(["landscape","portrait"]).default("landscape")}),
     build:i=>({prompt:i.prompt,duration:i.duration,size:i.orientation==="portrait"?"480*832":"832*480"})
   },
+  "ai-voiceover": {
+    modelId:"minimax/speech-2.6-hd",mode:"text",
+    inputSchema:z.object({text:z.string().trim().min(1).max(5000),voice:z.enum(["Friendly_Person","Wise_Woman","Calm_Woman","Deep_Voice_Man"]).default("Friendly_Person"),speed:z.number().min(0.5).max(2).default(1)}),
+    build:i=>({text:i.text,voice_id:i.voice,speed:i.speed,format:"mp3",language_boost:"Russian"})
+  },
+  "upscale": {
+    modelId:"wavespeed-ai/real-esrgan",mode:"image",
+    inputSchema:z.object({imageAssetId:imageRef}),
+    build:(_i,url)=>({image:url})
+  },
 };
 
 export function prepareApp(slug: string, raw: unknown): { modelId:string; mode:"text"|"image"; input:Record<string,unknown>; imageAssetId?:string; spec:ModelSpec } {

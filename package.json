@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "db:migrate": "tsx scripts/migrate.ts",
     "worker": "tsx scripts/worker.ts",
+    "reconcile": "tsx scripts/reconcile-unknown.ts",
     "dev:credit": "tsx scripts/dev-credit.ts",
     "test:unit": "tsx --test tests/unit.test.ts",
     "test:smoke": "tsx tests/smoke.ts"

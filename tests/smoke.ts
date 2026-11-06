@@ -54,6 +54,33 @@ async function main(){
   const finalWallet=await api("/api/v1/wallet");
   assert.equal(finalWallet.body.reservedKopecks,0);
   assert.equal(finalWallet.body.availableKopecks,credit-quote.body.amountKopecks);
+  // Cover media upload, owner validation, image adapter, and voiceover.
+  const png=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Yf6XVwAAAAASUVORK5CYII=","base64");
+  const form=new FormData();
+  form.append("file",new Blob([png],{type:"image/png"}),"pixel.png");
+  const uploaded=await fetch(origin+"/api/v1/assets",{
+    method:"POST",headers:{Origin:origin,Cookie:cookie},body:form
+  });
+  assert.equal(uploaded.status,201);
+  const image=await uploaded.json();
+  const up=await api("/api/v1/quotes","POST",{appSlug:"upscale",input:{imageAssetId:image.id}});
+  assert.equal(up.response.status,201,JSON.stringify(up.body));
+  const audio=await api("/api/v1/quotes","POST",{appSlug:"ai-voiceover",input:{text:"Добро пожаловать!",voice:"Calm_Woman"}});
+  assert.equal(audio.response.status,201,JSON.stringify(audio.body));
+  for(const item of [up,audio]){
+    const o=await api("/api/v1/orders","POST",{quoteId:item.body.id},randomUUID());
+    assert.equal(o.response.status,201,JSON.stringify(o.body));
+    let status="";
+    for(let i=0;i<30;i++){
+      const r=await api("/api/v1/orders/"+o.body.id);status=r.body.status;
+      if(status==="completed")break;
+      await new Promise(resolve=>setTimeout(resolve,500));
+    }
+    assert.equal(status,"completed");
+  }
+  const after=await api("/api/v1/wallet");
+  assert.equal(after.body.reservedKopecks,0);
+  assert.equal(after.body.availableKopecks,credit-quote.body.amountKopecks-up.body.amountKopecks-audio.body.amountKopecks);
   const bad=await api("/api/v1/quotes","POST",{appSlug:"text-to-image",input:{prompt:"a"}});
   assert.equal(bad.response.status,422);
   console.log("Smoke OK — account, quote, wallet, idempotent job, mocked output, access control");

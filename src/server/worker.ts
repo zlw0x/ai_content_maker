@@ -3,6 +3,7 @@ import {db,one,transaction} from "./db";
 import {submitPrediction,getPrediction} from "./wavespeed";
 import {captureOrder,failAndRelease} from "./wallet";
 import {persistOutput,persistMockOutput} from "./media";
+import {reconcileTopup} from "./operations";
 import {promises as fs} from "node:fs";
 import path from "node:path";
 
@@ -26,8 +27,12 @@ async function submit(job:Job) {
     await db().query(`UPDATE generation_jobs SET provider_prediction_id=$2,status='processing',
       submitted_at=now(),updated_at=now() WHERE id=$1 AND status='submitting'`,[job.id,providerId]);
   }catch(error) {
-    // A dropped response may mean the provider accepted and billed the job.
-    // Never resubmit automatically: flag unknown until independently reconciled.
+    // Explicit 4xx rejection is safe to release. Lost response / 5xx might have been billed.
+    const code=error && typeof error==="object" && "code" in error ? String(error.code) : "";
+    if(["PROVIDER_HTTP_400","PROVIDER_HTTP_401","PROVIDER_HTTP_403","PROVIDER_HTTP_429"].includes(code)){
+      await failAndRelease(job.id,code);
+      return;
+    }
     await db().query(`UPDATE generation_jobs SET status='unknown',error_code='SUBMISSION_UNCERTAIN',updated_at=now()
       WHERE id=$1 AND status='submitting'`,[job.id]);
     console.error("Unknown submission",job.id,error instanceof Error?error.message:"unknown");
@@ -63,6 +68,14 @@ async function finish(job:Job){
     }
   }
   await captureOrder(job.id);
+}
+async function reconcilePayments(){
+  if(config().PAYMENT_MODE!=="yookassa")return;
+  const list=await db().query<{external_payment_id:string}>(`SELECT external_payment_id FROM payments
+    WHERE status='pending' AND external_payment_id IS NOT NULL ORDER BY created_at LIMIT 15`);
+  for(const item of list.rows){
+    try{await reconcileTopup(item.external_payment_id);}catch(e){console.error("Payment reconcile failed",e instanceof Error?e.message:"unknown");}
+  }
 }
 async function expireMedia(){
   const r=await db().query<{id:string;object_key:string}>(`SELECT id,object_key FROM media_assets
@@ -101,7 +114,12 @@ export async function runWorker():Promise<void> {
   while(!stopping) {
     try{
       await tickWorker();
-      if(Date.now()-lastCleanup>60_000){await expireMedia();lastCleanup=Date.now();}
+      if(Date.now()-lastCleanup>60_000){
+        await expireMedia();
+        await reconcilePayments();
+        await db().query("DELETE FROM sessions WHERE expires_at<now()");
+        lastCleanup=Date.now();
+      }
     }catch(error){console.error("Worker tick failed",error);}
     await new Promise(resolve=>setTimeout(resolve,config().WORKER_INTERVAL_MS));
   }

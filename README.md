@@ -17,6 +17,8 @@ npm run dev
 npm run worker
 ```
 
+Альтернативный способ — весь backend через Docker: `docker compose up --build -d` (web, worker, миграции и PostgreSQL), см. [инструкцию](docs/DEPLOYMENT.md).
+
 Открой http://localhost:3000. Каталог всё ещё показывает UI-демо, пока фронтенд не подключён к новым backend endpoint. Backend уже доступен по `/api/v1/*`.
 
 Для тестирования через REST:
@@ -62,7 +64,7 @@ POST /api/webhooks/yookassa        # independently verified via provider GET
 | Server quotes, order idempotency, wallet ledger | Implemented |
 | Worker + submission uncertainty safety | Implemented; unknown jobs require manual reconciliation |
 | Mock provider end-to-end test | Implemented |
-| Live WaveSpeed adapters | Implemented for 8 scenarios; require funded API key and measured integration |
+| Live WaveSpeed adapters | Implemented for 10 scenarios; require funded API key and measured integration |
 | YooKassa SBP adapter | Implemented; disabled until explicitly enabled/configured |
 | Full UI integration | Not yet: forms still M0 demo |
 | Automated fiscal receipts & real refunds | Not implemented |

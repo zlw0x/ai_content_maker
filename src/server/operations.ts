@@ -82,6 +82,8 @@ export async function createOrder(userId:string,raw:unknown,rawIdem:string|null)
   const body=z.object({quoteId:uuid}).safeParse(raw);
   assert(body.success&&rawIdem&&idem.safeParse(rawIdem).success,422,"INVALID_ORDER","Нужны quoteId и Idempotency-Key UUID");
   return transaction(async c=>{
+    // Serialize identical user idempotency keys before querying existing orders.
+    await c.query("SELECT pg_advisory_xact_lock(hashtext($1))",[userId+":"+rawIdem]);
     const existing=await c.query(`SELECT id,status,reserved_kopecks FROM generation_jobs
       WHERE user_id=$1 AND client_idempotency_key=$2`,[userId,rawIdem]);
     if(existing.rowCount) return {id:existing.rows[0].id,status:existing.rows[0].status,priceKopecks:Number(existing.rows[0].reserved_kopecks),idempotent:true};
@@ -135,10 +137,15 @@ export async function createTopup(userId:string,raw:unknown,idempotencyKey:strin
   const row=await one<{external_payment_id:string|null;confirmation_url:string|null;amount_kopecks:string;status:string}>("SELECT external_payment_id,confirmation_url,amount_kopecks,status FROM payments WHERE id=$1 AND user_id=$2",[paymentId,userId]);
   assert(row,404,"PAYMENT_NOT_FOUND","Платёж не найден");
   if(row.external_payment_id) return {id:paymentId,status:row.status,confirmationUrl:row.confirmation_url};
-  // Same provider idempotency key => retrying payment creation is safe within provider's documented retention.
+  // Claim the creation operation before calling an external money API.
+  // If the process dies or the network drops, status remains 'unknown'; never create a second payment blindly.
+  const claimed=await db().query(`UPDATE payments SET status='unknown',updated_at=now()
+    WHERE id=$1 AND status='pending' AND external_payment_id IS NULL RETURNING id`,[paymentId]);
+  assert(claimed.rowCount===1,409,"PAYMENT_UNCERTAIN","Создание платежа требует сверки");
   const external=await createSbpPayment(paymentId,Number(row.amount_kopecks));
-  await db().query("UPDATE payments SET external_payment_id=$2,confirmation_url=$3,updated_at=now() WHERE id=$1 AND external_payment_id IS NULL",
-    [paymentId,external.id,external.confirmation?.confirmation_url??null]);
+  await db().query(`UPDATE payments SET external_payment_id=$2,confirmation_url=$3,status=$4,updated_at=now()
+    WHERE id=$1 AND status='unknown' AND external_payment_id IS NULL`,
+    [paymentId,external.id,external.confirmation?.confirmation_url??null,external.status==="succeeded"?"pending":external.status]);
   return {id:paymentId,status:external.status,confirmationUrl:external.confirmation?.confirmation_url??null};
 }
 export async function getTopup(userId:string,id:string) {
