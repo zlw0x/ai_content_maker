@@ -6,7 +6,7 @@ An API key pasted into a conversation is not a safe deployment secret, even if s
 
 ## What was implemented
 
-1. WaveSpeed Pricing API now receives {model_id, input}, including all parameters. The worker checks a fresh upstream quote BEFORE creating a paid prediction; when pricing changes upward or fails, it refuses submission and releases the reserved balance.
+1. WaveSpeed Pricing API now receives {model_id, inputs}, including all parameters. The worker checks a fresh upstream quote BEFORE creating a paid prediction; when pricing changes upward or fails, it refuses submission and releases the reserved balance.
 2. The provider prediction output URL stays on the server. Our worker copies up to 4 outputs to a private media volume.
 3. Authenticated /api/v1/assets/:id checks user_id ownership for every read. `?view=1` uses safe inline media types, HTTP Range works for video/audio. SVG stays an attachment to prevent same-origin script execution.
 4. Paginated /api/v1/library?kind=all|image|video|audio&page=0 gives only the current user's records and local asset paths.
@@ -81,7 +81,7 @@ docker compose exec -T worker npm run staging:credit -- staging-user@example.com
 - Backups/restore and monitoring, S3 for multi-host hosting, production threat review and commercial/compliance decisions.
 
 ### Pricing contract correction
-The official WaveSpeed Pricing API presently documents `input` (singular), including full per-request parameters: https://wavespeed.ai/docs/pricing-api . Earlier guidance incorrectly mentioned `inputs`. Tests now assert the singular field; do not submit paid jobs before checking the price.
+The verified WaveSpeed Pricing API specifies **`inputs` (plural)** for per-request dynamic pricing: https://wavespeed.ai/docs/pricing-api . Without `inputs`, the provider returns its base price; that is NOT a safe quote for duration/size-dependent jobs. Tests assert the plural field and all calculated parameters; do not submit paid jobs before checking the price.
 
 
 ## One-shot test of exactly one genuine generation (explicitly opt-in)
@@ -116,7 +116,7 @@ The script is intentionally gated and is not itself evidence that a real provide
 
 
 ## Provider contract tests without spending
-The integration test file `tests/provider.contract.test.ts` uses a fake server key and intercepts all outbound WaveSpeed fetch calls. It verifies request pricing with `input` (singular, the currently opened official documentation), balance, upload ticket, signed PUT **without** bearer key, exactly one prediction submission, and polling. `npm run test:unit` runs these in CI and needs no API key or network.
+The integration test file `tests/provider.contract.test.ts` uses a fake server key and intercepts all outbound WaveSpeed fetch calls. It verifies request pricing with `inputs` (plural, the verified WaveSpeed dynamic pricing contract), balance, upload ticket, signed PUT **without** bearer key, exactly one prediction submission, and polling. `npm run test:unit` runs these in CI and needs no API key or network.
 
 Official documentation may change rapidly and search snippets can lag behind the full page. Before the first funded run, execute `npm run provider:check` with a freshly rotated staging key. If a provider contract changes, abort the paid test rather than guessing.
 WaveSpeed output downloads are now identified by file signatures and refuse unsupported or mismatched types. This lets CDN `application/octet-stream` responses be saved with the correct content type.

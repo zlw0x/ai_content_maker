@@ -58,11 +58,12 @@ test("Premium image uses distinct higher-tier Seedream model",()=>{
   assert.equal(app.spec.build(app.input).resolution,"1k");
 });
 
-test("Pricing API uses documented input (singular) with all parameters",()=>{
+test("Pricing API passes dynamic inputs under the documented plural key",()=>{
   assert.deepEqual(priceRequestBody("wavespeed-ai/z-image/turbo",{prompt:"Hello",size:"1024*1024"}),{
-    model_id:"wavespeed-ai/z-image/turbo",input:{prompt:"Hello",size:"1024*1024"}
+    model_id:"wavespeed-ai/z-image/turbo",inputs:{prompt:"Hello",size:"1024*1024"}
   });
-  assert.equal("inputs" in priceRequestBody("a",{prompt:"x"}),false);
+  assert.equal("input" in priceRequestBody("a",{prompt:"x"}),false);
+  assert.deepEqual(priceRequestBody("dynamic/model",{}),{model_id:"dynamic/model",inputs:{}});
 });
 test("Media Range parser supports seek and suffix but rejects multi-range",()=>{
   assert.deepEqual(parseRange("bytes=0-9",100),{start:0,end:9});

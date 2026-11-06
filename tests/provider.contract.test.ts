@@ -32,7 +32,7 @@ test("WaveSpeed live protocol: price, balance, signed upload, one submit and res
     }
     if(u==="https://api.wavespeed.ai/api/v3/model/price"){
       assert.equal(rec.method,"POST");
-      assert.deepEqual(rec.body,{model_id:model,input:inputs});
+      assert.deepEqual(rec.body,{model_id:model,inputs});
       return response({model_id:model,currency:"USD",price:0.005,discounted_price:0.005});
     }
     if(u==="https://api.wavespeed.ai/api/v3/media/uploads"){
@@ -60,7 +60,7 @@ test("WaveSpeed live protocol: price, balance, signed upload, one submit and res
     throw new Error("Unexpected external URL "+u);
   };
   try{
-    assert.deepEqual(priceRequestBody(model,inputs),{model_id:model,input:inputs});
+    assert.deepEqual(priceRequestBody(model,inputs),{model_id:model,inputs});
     assert.equal(await providerBalance(),"2.75");
     assert.equal(await providerPrice(model,inputs),"0.005");
     assert.equal(await uploadWaveSpeed(Buffer.from([137,80,78,71]),"photo.png","image/png"),

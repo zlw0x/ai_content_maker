@@ -28,7 +28,7 @@ export async function providerBalance():Promise<string>{
   return String(data.balance);
 }
 export function priceRequestBody(modelId:string,input:Record<string,unknown>){
-  return {model_id:modelId,input};
+  return {model_id:modelId,inputs:input};
 }
 export async function providerPrice(modelId:string, input:Record<string,unknown>):Promise<string> {
   if(config().WAVESPEED_MODE==="mock") return String(config().MOCK_COST_USD);
