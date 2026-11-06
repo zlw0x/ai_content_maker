@@ -13,8 +13,10 @@ async function main(){
   const input={prompt:"A small copper cube on a neutral background",size:"1024*1024",output_format:"jpeg"};
   const cost=new Decimal(await providerPrice("wavespeed-ai/z-image/turbo",input));
   if(cost.isNegative()||cost.gt(c.MAX_PROVIDER_COST_USD)){
+    // Fail closed before any test-account creation or paid submission.
     throw new Error("Provider quoted cost exceeds configured MAX_PROVIDER_COST_USD. No inference submitted.");
   }
+  if(balance.lt(cost))throw new Error("Insufficient WaveSpeed API balance for even one quoted task. No paid inference submitted.");
   console.log(JSON.stringify({
     provider:"WaveSpeed",model:"wavespeed-ai/z-image/turbo",
     balanceUsd:balance.toString(),quoteUsd:cost.toString(),

@@ -88,6 +88,7 @@ jobs:
       - name: Start Docker Compose stack
         run: |
           cp .env.example .env
+          docker compose --project-name acm-staging --env-file .env.staging.example -f compose.staging.yaml config >/dev/null
           docker compose up -d --build
       - name: Wait for healthy app
         run: |
@@ -112,3 +113,30 @@ jobs:
           docker compose ps || true
           docker compose logs --tail=120 || true
           docker compose down -v --remove-orphans || true
+
+  windows-launcher-syntax:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse PowerShell 5.1 compatible launcher scripts
+        shell: powershell
+        run: |
+          $scripts = @("portable/setup.ps1", "portable/run-once.ps1", "portable/status.ps1", "portable/stop.ps1")
+          foreach ($script in $scripts) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Join-Path (Get-Location) $script), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error "$script : $_" }
+              exit 1
+            }
+            Write-Host "$script parses cleanly"
+          }
+      - name: Check Windows starter files are packaged
+        shell: powershell
+        run: |
+          $required = @("01_START_HERE.cmd", "02_RUN_ONE_TEST.cmd", "03_STATUS.cmd", "04_STOP_KEEP_DATA.cmd", ".env.staging.example", "compose.staging.yaml", "README_START_HERE.md")
+          foreach ($path in $required) {
+            if (-not (Test-Path -LiteralPath $path)) { throw "Portable kit missing: $path" }
+          }
+          if (Test-Path -LiteralPath ".env.staging") { throw "Private staging credential accidentally committed" }

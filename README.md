@@ -92,3 +92,8 @@ See [WaveSpeed live staging and user-owned media instructions](docs/LIVE_STAGING
 ## Подтверждённые тесты и инженерный аудит
 
 В CI есть два независимых прохода: Node unit/API/Playwright и **полный Docker Compose** (PostgreSQL + миграции + web + worker, реальные HTTP smoke и Playwright в mock). Это не эквивалент paid WaveSpeed inference. См. [технический аудит от 06.11.2026](docs/AUDIT_2026-11-06.md), [staging-инструкцию](docs/LIVE_STAGING_CHECKLIST.md).
+
+
+## Windows: готовый пакет для одного реального теста
+
+Скачайте ZIP репозитория, распакуйте и запустите **`01_START_HERE.cmd`**. После успешной проверки API — **`02_RUN_ONE_TEST.cmd`** для одной оплаченной генерации с отдельным staging-пользователем. Полные инструкции на русском: [README_START_HERE.md](README_START_HERE.md). Доступ по http://localhost:3100, изолированные Docker volumes, СБП отключён.

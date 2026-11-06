@@ -8,3 +8,5 @@ private-media
 !.env.example
 *.log
 coverage
+
+!.env.staging.example
