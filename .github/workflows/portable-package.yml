@@ -1,0 +1,31 @@
+name: Portable Windows package
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build complete source ZIP without local secrets
+        run: |
+          test ! -f .env.staging
+          test ! -f .env
+          git archive --format=zip --output=AI-Content-Maker-Portable-Windows.zip HEAD
+          unzip -l AI-Content-Maker-Portable-Windows.zip | grep -q '01_START_HERE.cmd'
+          unzip -l AI-Content-Maker-Portable-Windows.zip | grep -q '.env.staging.example'
+          unzip -l AI-Content-Maker-Portable-Windows.zip | grep -q 'compose.staging.yaml'
+          unzip -l AI-Content-Maker-Portable-Windows.zip | grep -q 'scripts/staging-one-shot.ts'
+          if unzip -Z -1 AI-Content-Maker-Portable-Windows.zip | grep -qx '.env.staging'; then
+            echo "ERROR: secret file in archive" >&2; exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AI-Content-Maker-Portable-Windows
+          path: AI-Content-Maker-Portable-Windows.zip
+          retention-days: 30
+          compression-level: 0
