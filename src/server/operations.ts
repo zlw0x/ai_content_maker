@@ -73,10 +73,10 @@ export async function createQuote(userId:string,raw:unknown) {
   const id=randomUUID();
   const digest=inputDigest(providerInput);
   await db().query(`INSERT INTO price_quotes
-    (id,user_id,app_slug,model_id,input_digest,input_json,input_asset_id,amount_kopecks,provider_cost_usd,fx_rub_per_usd,expires_at)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now()+interval '10 minutes')`,
-    [id,userId,request.data.appSlug,prepared.modelId,digest,JSON.stringify(providerInput),prepared.imageAssetId??null,amount,costUsd,config().FX_RUB_PER_USD]);
-  return {id,appSlug:request.data.appSlug,amountKopecks:amount,currency:"RUB",providerCostUsd:costUsd,expiresInSeconds:600};
+    (id,user_id,app_slug,model_id,input_digest,input_json,user_input_json,input_asset_id,amount_kopecks,provider_cost_usd,fx_rub_per_usd,expires_at)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now()+interval '10 minutes')`,
+    [id,userId,request.data.appSlug,prepared.modelId,digest,JSON.stringify(providerInput),JSON.stringify(prepared.input),prepared.imageAssetId??null,amount,costUsd,config().FX_RUB_PER_USD]);
+  return {id,appSlug:request.data.appSlug,amountKopecks:amount,currency:"RUB",expiresInSeconds:600};
 }
 export async function createOrder(userId:string,raw:unknown,rawIdem:string|null) {
   const body=z.object({quoteId:uuid}).safeParse(raw);
@@ -115,15 +115,19 @@ export async function createOrder(userId:string,raw:unknown,rawIdem:string|null)
 }
 export async function listOrders(userId:string) {
   const result=await db().query(`SELECT id,app_slug AS "appSlug",status,reserved_kopecks AS "priceKopecks",created_at AS "createdAt",
-    finished_at AS "finishedAt",error_code AS "errorCode" FROM generation_jobs WHERE user_id=$1 ORDER BY created_at DESC LIMIT 50`,[userId]);
+    finished_at AS "finishedAt",error_code AS "errorCode" FROM generation_jobs WHERE user_id=$1 AND hidden_at IS NULL ORDER BY created_at DESC LIMIT 50`,[userId]);
   return result.rows.map(r=>({...r,priceKopecks:Number(r.priceKopecks)}));
 }
 export async function getOrder(userId:string,id:string) {
   assert(uuid.safeParse(id).success,422,"INVALID_ID","Неверный ID");
-  const job=await one(`SELECT id,app_slug AS "appSlug",status,reserved_kopecks AS "priceKopecks",created_at AS "createdAt",
-    finished_at AS "finishedAt",error_code AS "errorCode" FROM generation_jobs WHERE user_id=$1 AND id=$2`,[userId,id]);
+  const job=await one(`SELECT j.id,j.app_slug AS "appSlug",j.status,j.reserved_kopecks AS "priceKopecks",
+    j.created_at AS "createdAt",j.finished_at AS "finishedAt",j.error_code AS "errorCode",
+    q.user_input_json AS "repeatInput"
+    FROM generation_jobs j JOIN price_quotes q ON j.quote_id=q.id
+    WHERE j.user_id=$1 AND j.id=$2 AND j.hidden_at IS NULL`,[userId,id]);
   assert(job,404,"ORDER_NOT_FOUND","Заказ не найден");
-  const assets=await db().query("SELECT id,media_type AS \"mediaType\" FROM media_assets WHERE user_id=$1 AND job_id=$2 AND kind='output' AND deleted_at IS NULL",[userId,id]);
+  const assets=await db().query("SELECT id,media_type AS \"mediaType\" FROM media_assets WHERE user_id=$1 AND job_id=$2 AND kind='output' AND deleted_at IS NULL
+    AND (expires_at IS NULL OR expires_at>now()) ORDER BY source_index",[userId,id]);
   return {...job,priceKopecks:Number(job.priceKopecks),outputs:assets.rows.map(r=>({...r,url:"/api/v1/assets/"+r.id}))};
 }
 export async function getUserWallet(userId:string){return getWallet(userId);}

@@ -74,3 +74,23 @@ export async function hideCompletedJob(userId:string,id:string){
     return {deleted:true};
   });
 }
+
+/** Deletes only an uploaded reference image. Generated outputs are deleted by deleting the library entry. */
+export async function deleteUserInput(userId:string,assetId:string){
+  assert(uuid.safeParse(assetId).success,422,"INVALID_ID","Неверный ID файла");
+  return transaction(async c=>{
+    const asset=(await c.query<{id:string;kind:string}>(`SELECT id,kind FROM media_assets
+      WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL FOR UPDATE`,[assetId,userId])).rows[0];
+    assert(asset&&asset.kind==="input",404,"FILE_NOT_FOUND","Исходное изображение не найдено");
+    const used=(await c.query(`
+      SELECT q.id FROM price_quotes q LEFT JOIN generation_jobs j ON j.quote_id=q.id
+      WHERE q.input_asset_id=$1 AND q.user_id=$2
+      AND ((j.id IS NULL AND q.expires_at>now()) OR
+        (j.status IN ('reserved','queued','submitting','unknown','processing')))
+      LIMIT 1
+    `,[assetId,userId])).rows[0];
+    assert(!used,409,"IMAGE_IN_USE","Изображение используется в действующем заказе или котировке");
+    await c.query("UPDATE media_assets SET deleted_at=now() WHERE id=$1",[assetId]);
+    return {deleted:true};
+  });
+}

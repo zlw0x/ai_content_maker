@@ -58,9 +58,9 @@ export async function streamUserAsset(request:NextRequest,userId:string,assetId:
     status:416,headers:{...common,"Content-Range":"bytes */"+info.size}
   });
   const start=range?.start??0,end=range?.end??info.size-1;
-  const headers={...common,"Content-Length":String(end-start+1)};
+  const headers:Record<string,string>={...common,"Content-Length":String(end-start+1)};
   if(range)headers["Content-Range"]="bytes "+start+"-"+end+"/"+info.size;
   const nodeStream=createReadStream(absolute,{start,end});
-  const stream=Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>;
+  const stream=Readable.toWeb(nodeStream) as unknown as ReadableStream<Uint8Array>;
   return new NextResponse(stream,{status:range?206:200,headers});
 }
