@@ -63,3 +63,52 @@ jobs:
           done
           npm run test:smoke
           npm run test:e2e
+
+
+  # Run the ACTUAL multi-container production image, migration and worker.
+  # Unlike the npm-only job, this verifies Docker Compose wiring and real
+  # container-to-container connectivity (while remaining in free mock mode).
+  compose-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: postgresql://ai_content_maker:change_this_password@localhost:5432/ai_content_maker
+      APP_ORIGIN: http://localhost:3000
+      WAVESPEED_MODE: mock
+      PAYMENT_MODE: disabled
+      ALLOW_LIVE_PAYMENTS: "false"
+      DEMO_CREDIT_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install test dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Start Docker Compose stack
+        run: |
+          cp .env.example .env
+          docker compose up -d --build
+      - name: Wait for healthy app
+        run: |
+          for i in $(seq 1 90); do
+            if curl -fsS http://localhost:3000/api/v1/health/ready >/dev/null; then
+              echo "Web, worker dependency and database migrations are ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Timed out waiting for Dockerized service health"
+          exit 1
+      - name: Install Chromium for Dockerized UI tests
+        run: npx playwright install --with-deps chromium
+      - name: Run API, wallet and browser tests against Docker Compose
+        run: |
+          npm run test:smoke
+          npm run test:e2e
+      - name: Diagnose and clean up containers
+        if: always()
+        run: |
+          docker compose ps || true
+          docker compose logs --tail=120 || true
+          docker compose down -v --remove-orphans || true

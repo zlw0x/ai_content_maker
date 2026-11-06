@@ -88,3 +88,7 @@ Live end-to-end тесты с реальными API, подтверждение
 ## Live staging and private library
 
 See [WaveSpeed live staging and user-owned media instructions](docs/LIVE_STAGING_CHECKLIST.md). Do not deploy a key previously pasted into chat. A true provider API test must use a newly rotated key from a private server-side secret.
+
+## Подтверждённые тесты и инженерный аудит
+
+В CI есть два независимых прохода: Node unit/API/Playwright и **полный Docker Compose** (PostgreSQL + миграции + web + worker, реальные HTTP smoke и Playwright в mock). Это не эквивалент paid WaveSpeed inference. См. [технический аудит от 06.11.2026](docs/AUDIT_2026-11-06.md), [staging-инструкцию](docs/LIVE_STAGING_CHECKLIST.md).
