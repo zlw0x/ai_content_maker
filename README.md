@@ -1,47 +1,91 @@
 # AI Content Maker
 
-Русскоязычный универсальный каталог AI-приложений для генерации изображений, видео и аудио. Планируемый AI-провайдер — WaveSpeed API; расчёты с пользователями — в RUB, СБП через российский эквайринг.
+Русскоязычный каталог AI-приложений. Backend — Next.js API + PostgreSQL + отдельный worker. Поддерживаются модельные адаптеры WaveSpeed, серверное ценообразование, учёт денег и адаптер ЮKassa/СБП. Все внешние платные операции **по умолчанию выключены**.
 
-> **Статус: архитектурный прототип (M0).** Реальных платежей, регистрации и вызовов платных API нет. Цены в UI — предварительные продуктовые гипотезы, не публичная оферта.
+## Быстрый запуск: backend в безопасном mock-режиме
 
-## Запуск наброска интерфейса
-
-Требуется Node.js 20.9+ и npm.
+**Нужно:** Node.js 22+, npm, Docker + Compose.
 
 ```bash
+cp .env.example .env
+# Change POSTGRES_PASSWORD and DATABASE_URL together in .env
+docker compose up -d db
 npm install
+npm run db:migrate
 npm run dev
+# in another terminal:
+npm run worker
 ```
 
-Открыть http://localhost:3000 — каталог и страницы приложений работают в демонстрационном режиме.
+Альтернативный способ — весь backend через Docker: `docker compose up --build -d` (web, worker, миграции и PostgreSQL), см. [инструкцию](docs/DEPLOYMENT.md).
 
-Опционально для следующего этапа: `docker compose up -d db` поднимет PostgreSQL; миграция `database/001_init.sql` пока **не применяется автоматически**.
+Открой http://localhost:3000. Каталог всё ещё показывает UI-демо, пока фронтенд не подключён к новым backend endpoint. Backend уже доступен по `/api/v1/*`.
 
-## Документация
+Для тестирования через REST:
+1. `POST /api/v1/auth/register` JSON `{"email":"demo@example.com","password":"a-very-long-test-password"}`; сохраните HTTP-only cookie.
+2. `GET /api/v1/apps`, `GET /api/v1/wallet`.
+3. Локально зачислите тестовый баланс: `npm run dev:credit -- demo@example.com 50000` (500 ₽ **только** для mock-mode).
+4. `POST /api/v1/quotes`: `{"appSlug":"text-to-image","input":{"prompt":"Футуристический город"}}`.
+5. `POST /api/v1/orders`: `{"quoteId":"uuid из котировки"}`, с `Idempotency-Key: <новый UUID>`.
+6. `GET /api/v1/orders/{id}` — worker завершит задачу и вернёт `outputs[0].url`, по которому можно скачать тестовый SVG.
 
-- [Продукт и каталог MVP](docs/PRODUCT.md)
-- [Архитектура и интеграции](docs/ARCHITECTURE.md)
-- [Модель данных и деньги](docs/DATA_MODEL.md)
-- [Контракты API](docs/API_CONTRACTS.md)
-- [Юнит-экономика](docs/PRICING.md)
-- [Безопасность и правовые зависимости](docs/SECURITY_COMPLIANCE.md)
-- [План релизов и критерии готовности](docs/ROADMAP.md)
-- [Архитектурное решение ADR-001](docs/decisions/0001-modular-monolith.md)
+Для проверки алгоритма и тестовых запросов: `npm run test:unit`, `npm run test:smoke` (последний требует запущенные сервер, worker и PostgreSQL).
 
-## Принципы
+## Endpoints
 
-1. AI App — собственный пользовательский сценарий над документированным API модели, не копия интерфейса или внутренних промптов WaveSpeed.
-2. Браузер не получает WaveSpeed API key и секреты эквайринга.
-3. Любая цена определяется на сервере до отправки платного запроса; пользователь подтверждает конечную сумму.
-4. Деньги учитываются в копейках, операции идемпотентны и атомарны.
-5. При неизвестном результате отправки **не** повторять платный POST автоматически.
-6. Первая версия — один веб-сервис + PostgreSQL + worker; без преждевременных микросервисов.
+```
+GET  /api/v1/health
+GET  /api/v1/health/ready
+GET  /api/v1/apps
+GET  /api/v1/apps/:slug
+POST /api/v1/auth/register
+POST /api/v1/auth/login
+POST /api/v1/auth/logout
+GET  /api/v1/auth/me
+POST /api/v1/assets                # multipart/form-data file=<png/jpg/webp>
+GET  /api/v1/assets/:id            # private download
+POST /api/v1/quotes                # server-side quote
+POST /api/v1/orders                # Idempotency-Key
+GET  /api/v1/orders
+GET  /api/v1/orders/:id
+GET  /api/v1/wallet
+POST /api/v1/topups                # disabled by default; Idempotency-Key
+GET  /api/v1/topups/:id
+POST /api/webhooks/wavespeed       # Standard Webhooks HMAC
+POST /api/webhooks/yookassa        # independently verified via provider GET
+```
 
-## Важные условия перед коммерческим запуском
+## Backend status
 
-- Письменно подтвердить у WaveSpeed допустимость платного доступа третьих лиц к результатам моделей через наш продукт и условия обслуживания пользователей РФ.
-- Проверить договорные и технические условия оплаты WaveSpeed из РФ.
-- Определить юрлицо/ИП, эквайринг/СБП, фискализацию, порядок возвратов, обработку персональных данных и трансграничную передачу фото/видео.
-- Не использовать реальную генерацию и настоящие платежи до готовности лимитов, учёта списаний и защит от повтора.
+| Component | State |
+|---|---|
+| PostgreSQL migrations, accounts and sessions | Implemented |
+| Local private input/output storage | Implemented (single-VPS mode) |
+| Server quotes, order idempotency, wallet ledger | Implemented |
+| Worker + submission uncertainty safety | Implemented; unknown jobs require manual reconciliation |
+| Mock provider end-to-end test | Implemented |
+| Live WaveSpeed adapters | Implemented for 10 scenarios; require funded API key and measured integration |
+| YooKassa SBP adapter | Implemented; disabled until explicitly enabled/configured |
+| Full UI integration | Not yet: forms still M0 demo |
+| Automated fiscal receipts & real refunds | Not implemented |
+| Multiple-output persistence | Not yet (worker stores first output only) |
+| Production-grade email verification & password reset | Not yet |
+| Horizontal scaling, object storage, observability | Not yet |
 
-Лицензию на исходники пока не назначаем: публичный GitHub-репозиторий **не** означает разрешение на свободное использование кода третьими лицами.
+**Do not treat this as production-ready financial software.** Security and operational controls need staging tests and review before serving real users or accepting actual money.
+
+## Documentation
+
+- [Backend implementation & API examples](docs/BACKEND.md)
+- [Product](docs/PRODUCT.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Data & financial rules](docs/DATA_MODEL.md)
+- [Pricing](docs/PRICING.md)
+- [Security checklist](docs/SECURITY_COMPLIANCE.md)
+- [Roadmap](docs/ROADMAP.md)
+
+## Data and secrets
+
+All secrets only in server environment. Do not use `NEXT_PUBLIC_` for API keys. `.env` and `private-media` are gitignored. Restrict DB port to localhost, use HTTPS, back up DB and file volume.
+
+The repo is currently public and has no OSI license. Copyright and deployment conditions require separate decisions.
