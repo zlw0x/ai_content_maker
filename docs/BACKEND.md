@@ -68,3 +68,12 @@ Do not commit `cookies.txt`.
 - Apply rate limits at reverse proxy for uploads and credential endpoints.
 
 Docs: https://wavespeed.ai/docs/pricing-api , https://wavespeed.ai/docs/submit-task , https://wavespeed.ai/docs/upload-files-api , https://wavespeed.ai/docs/verify-webhooks , https://yookassa.ru/developers/payment-acceptance/integration-scenarios/manual-integration/other/sbp
+
+## Personal media library (PR #11)
+- `GET /api/v1/library?kind=all|image|video|audio&page=0`: authenticated, paginated owner-only list; local preview/download URLs only.
+- `GET /api/v1/assets/:id?view=1`: authenticated safe inline display for jpg/png/webp/mp4/mp3/wav, HTTP byte range for seekable video/audio. SVG forced to attachment.
+- `DELETE /api/v1/library/:jobId`: hides only a terminal completed/failed order and revokes output file access immediately. Financial ledger and provider history remain.
+- `DELETE /api/v1/assets/:id`: deletes an uploaded input not referenced by a live quote or active job.
+- Output retention is configured with `OUTPUT_RETENTION_DAYS` (default 30 days). Input references remain 7 days.
+- Repeat prompts are returned only for the authenticated order owner and have no upstream provider URLs.
+- Paid staging is isolated from mock credit. See [LIVE_STAGING_CHECKLIST.md](LIVE_STAGING_CHECKLIST.md).
