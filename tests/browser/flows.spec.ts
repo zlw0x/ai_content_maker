@@ -20,6 +20,16 @@ test("register, top up mock balance, request job, download result",async({page})
   await expect(page.getByText("Готово").first()).toBeVisible({timeout:30000});
   await page.getByRole("button",{name:"Показать результат"}).first().click();
   await expect(page.getByRole("link",{name:/Скачать image/})).toBeVisible();
+
+  // Check the real browser upload path for image-only applications.
+  await page.goto("/apps/upscale");
+  const png=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Yf6XVwAAAAASUVORK5CYII=","base64");
+  await page.locator('input[type="file"]').setInputFiles({name:"tiny.png",mimeType:"image/png",buffer:png});
+  await page.getByRole("button",{name:"Рассчитать стоимость"}).click();
+  await expect(page.getByRole("button",{name:/Запустить за/})).toBeVisible();
+  await page.getByRole("button",{name:/Запустить за/}).click();
+  await expect(page).toHaveURL(/\\/dashboard/);
+  await expect(page.getByText("Готово").first()).toBeVisible({timeout:30000});
 });
 
 test("mobile catalog search and category filters",async({page})=>{
