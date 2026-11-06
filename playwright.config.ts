@@ -5,6 +5,6 @@ export default defineConfig({
   retries:1,
   workers:1,
   reporter:"list",
-  use:{baseURL:"http://127.0.0.1:3000",...devices["Desktop Chrome"],trace:"retain-on-failure"},
+  use:{baseURL:"http://localhost:3000",...devices["Desktop Chrome"],trace:"retain-on-failure"},
   outputDir:"test-results"
 });
