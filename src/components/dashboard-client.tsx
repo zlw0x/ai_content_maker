@@ -56,7 +56,8 @@ export function DashboardClient(){
   return <div className="dashboard">
     <div className="dashboard-header">
       <div><span className="section-kicker">ЛИЧНОЕ ПРОСТРАНСТВО</span><h1>Мои генерации</h1><p className="muted">{user?.email}</p></div>
-      <button type="button" className="button button-secondary" disabled={busy} onClick={()=>void logout()}>Выйти</button>
+      <div className="library-actions"><Link className="button button-primary" href="/library">Моя медиатека</Link>
+      <button type="button" className="button button-secondary" disabled={busy} onClick={()=>void logout()}>Выйти</button></div>
     </div>
     {error&&<p className="form-error" role="alert">{error}</p>}
     <div className="wallet-grid">

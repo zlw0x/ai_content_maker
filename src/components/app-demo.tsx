@@ -1,6 +1,6 @@
 "use client";
 
-import {useState} from "react";
+import {useEffect,useState} from "react";
 import Link from "next/link";
 import {useRouter} from "next/navigation";
 import type {AiApp} from "@/lib/catalog";
@@ -31,7 +31,23 @@ export function AppDemo({app}:{app:AiApp}){
   const isTextVideo=app.slug==="text-to-video";
   const isVoice=app.mode==="voice";
   const isImageText=app.slug==="text-to-image"||app.slug==="premium-image";
-
+  useEffect(()=>{
+    const id=new URLSearchParams(window.location.search).get("repeat");
+    if(!id||!/^[a-f0-9-]{36}$/i.test(id))return;
+    void api<{repeatInput:Record<string,unknown>|null}>("/orders/"+id).then(item=>{
+      const input=item.repeatInput;
+      if(!input)return;
+      setPrompt(String(input.prompt??input.text??""));
+      if(typeof input.size==="string")setSize(input.size);
+      if(input.duration===5||input.duration===8)setDuration(input.duration);
+      if(input.resolution==="480p"||input.resolution==="720p")setResolution(input.resolution);
+      if(input.orientation==="landscape"||input.orientation==="portrait")setOrientation(input.orientation);
+      if(typeof input.voice==="string")setVoice(input.voice);
+      if(typeof input.speed==="number")setSpeed(input.speed);
+      if(typeof input.strength==="number")setStrength(input.strength);
+      if(needsImage)setError("Параметры восстановлены. Загрузите исходное изображение повторно.");
+    }).catch(()=>setError("Не удалось загрузить параметры предыдущей генерации"));
+  },[app.slug,needsImage]);
   function change(update:()=>void){update();setQuote(null);setQuotedUntil(0);setOrderKey("");setError("");}
   function buildInput(assetId?:string):Record<string,unknown>{
     const input:Record<string,unknown>={};
