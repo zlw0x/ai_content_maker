@@ -7,6 +7,7 @@ import {hashPassword,verifyPassword} from "../src/server/security";
 import {parseRange} from "../src/server/media-delivery";
 import {priceRequestBody} from "../src/server/wavespeed";
 import {classifyApp} from "../src/server/library";
+import {checkedOutputType} from "../src/server/media";
 
 process.env.DATABASE_URL="postgresql://test:test@localhost:5432/test";
 process.env.FX_RUB_PER_USD="90";
@@ -77,4 +78,20 @@ test("Gallery media kind uses stable app mapping independent of mock MIME",()=>{
   assert.equal(classifyApp("photo-to-video"),"video");
   assert.equal(classifyApp("ai-voiceover"),"audio");
   assert.equal(classifyApp("text-to-image"),"image");
+});
+
+test("CDN octet-stream is recognized from content, not served as HTML or SVG",()=>{
+  const png=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Yf6XVwAAAAASUVORK5CYII=","base64");
+  const jpeg=Buffer.from([255,216,255,224,0,16,74,70,73,70,0,1]);
+  const mp4=Buffer.from([0,0,0,24,102,116,121,112,105,115,111,109,0,0,2,0]);
+  const wav=Buffer.from("RIFF0000WAVEfmt ","ascii");
+  const mp3=Buffer.from("ID3\u0003\u0000\u0000","binary");
+  assert.equal(checkedOutputType(png,"application/octet-stream"),"image/png");
+  assert.equal(checkedOutputType(jpeg,""),"image/jpeg");
+  assert.equal(checkedOutputType(mp4,"video/mp4"),"video/mp4");
+  assert.equal(checkedOutputType(wav,"application/octet-stream"),"audio/wav");
+  assert.equal(checkedOutputType(mp3,"audio/mpeg"),"audio/mpeg");
+  assert.throws(()=>checkedOutputType(Buffer.from("<svg><script>alert(1)</script></svg>"),"application/octet-stream"));
+  assert.throws(()=>checkedOutputType(png,"text/html"));
+  assert.throws(()=>checkedOutputType(png,"image/jpeg"));
 });

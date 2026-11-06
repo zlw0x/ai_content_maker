@@ -62,6 +62,25 @@ function validateOutputUrl(raw:string):URL {
     "Host результата не разрешён в OUTPUT_HOST_ALLOWLIST");
   return u;
 }
+/**
+ * Infer real media type from magic bytes. CDN servers frequently label files
+ * as application/octet-stream, but we must never serve an arbitrary blob as
+ * executable HTML/SVG or silently store an unplayable video.
+ */
+export function checkedOutputType(body:Buffer, declared:string):string {
+  let detected:string|undefined;
+  if(body.length>=8&&body.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))detected="image/png";
+  else if(body.length>=3&&body[0]===255&&body[1]===216&&body[2]===255)detected="image/jpeg";
+  else if(body.length>=12&&body.toString("ascii",0,4)==="RIFF"&&body.toString("ascii",8,12)==="WEBP")detected="image/webp";
+  else if(body.length>=12&&body.toString("ascii",4,8)==="ftyp")detected="video/mp4";
+  else if(body.length>=12&&body.toString("ascii",0,4)==="RIFF"&&body.toString("ascii",8,12)==="WAVE")detected="audio/wav";
+  else if(body.length>=3&&body.toString("ascii",0,3)==="ID3")detected="audio/mpeg";
+  else if(body.length>=2&&body[0]===255&&(body[1]&0xe0)===0xe0)detected="audio/mpeg";
+  if(!detected)throw new HttpError(502,"INVALID_OUTPUT_TYPE","Неизвестный формат результата");
+  if(declared!==""&&declared!=="application/octet-stream"&&declared!==detected)
+    throw new HttpError(502,"OUTPUT_MIME_MISMATCH","MIME результата не соответствует содержимому");
+  return detected;
+}
 async function remoteBytes(raw:string):Promise<{body:Buffer;type:string}> {
   const url=validateOutputUrl(raw);
   const response=await fetch(url,{signal:AbortSignal.timeout(120000),redirect:"error",cache:"no-store"});
@@ -82,9 +101,7 @@ async function remoteBytes(raw:string):Promise<{body:Buffer;type:string}> {
     }
   }finally{reader.releaseLock();}
   const body=Buffer.concat(chunks.map(c=>Buffer.from(c)),total);
-  const allowed=["image/png","image/jpeg","image/webp","video/mp4","audio/mpeg","audio/wav","application/octet-stream"];
-  if(!allowed.includes(type))throw new HttpError(502,"INVALID_OUTPUT_TYPE","Недопустимый формат результата");
-  return {body,type};
+  return {body,type:checkedOutputType(body,type)};
 }
 export async function persistOutput(userId:string,jobId:string,outputUrl:string,sourceIndex=0):Promise<string> {
   const {body,type}=await remoteBytes(outputUrl);

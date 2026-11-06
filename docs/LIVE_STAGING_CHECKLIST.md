@@ -113,3 +113,10 @@ docker compose exec -T worker npm run staging:one-shot -- --allow-one-paid-infer
 Keep the temporary credentials printed in the operator terminal private. If the job becomes `unknown` or times out, inspect its history; **do not run the one-shot command a second time** on that environment. The one-shot command refuses to run if any user already exists in the staging DB. Always verify the actual USD charge in the WaveSpeed dashboard afterward. The CDN allowlist must be confirmed; an incorrect hostname prevents our storage worker from fetching results.
 
 The script is intentionally gated and is not itself evidence that a real provider call has succeeded. 
+
+
+## Provider contract tests without spending
+The integration test file `tests/provider.contract.test.ts` uses a fake server key and intercepts all outbound WaveSpeed fetch calls. It verifies request pricing with `input` (singular, the currently opened official documentation), balance, upload ticket, signed PUT **without** bearer key, exactly one prediction submission, and polling. `npm run test:unit` runs these in CI and needs no API key or network.
+
+Official documentation may change rapidly and search snippets can lag behind the full page. Before the first funded run, execute `npm run provider:check` with a freshly rotated staging key. If a provider contract changes, abort the paid test rather than guessing.
+WaveSpeed output downloads are now identified by file signatures and refuse unsupported or mismatched types. This lets CDN `application/octet-stream` responses be saved with the correct content type.
