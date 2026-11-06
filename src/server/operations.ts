@@ -126,8 +126,10 @@ export async function getOrder(userId:string,id:string) {
     FROM generation_jobs j JOIN price_quotes q ON j.quote_id=q.id
     WHERE j.user_id=$1 AND j.id=$2 AND j.hidden_at IS NULL`,[userId,id]);
   assert(job,404,"ORDER_NOT_FOUND","Заказ не найден");
-  const assets=await db().query("SELECT id,media_type AS \"mediaType\" FROM media_assets WHERE user_id=$1 AND job_id=$2 AND kind='output' AND deleted_at IS NULL
-    AND (expires_at IS NULL OR expires_at>now()) ORDER BY source_index",[userId,id]);
+  const assets=await db().query(`SELECT id,media_type AS "mediaType" FROM media_assets
+    WHERE user_id=$1 AND job_id=$2 AND kind='output' AND deleted_at IS NULL
+      AND (expires_at IS NULL OR expires_at>now())
+    ORDER BY source_index`,[userId,id]);
   return {...job,priceKopecks:Number(job.priceKopecks),outputs:assets.rows.map(r=>({...r,url:"/api/v1/assets/"+r.id}))};
 }
 export async function getUserWallet(userId:string){return getWallet(userId);}
