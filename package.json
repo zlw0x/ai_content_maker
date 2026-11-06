@@ -12,6 +12,7 @@
     "reconcile": "tsx scripts/reconcile-unknown.ts",
     "dev:credit": "tsx scripts/dev-credit.ts",
     "staging:credit": "tsx scripts/staging-credit.ts",
+    "provider:check": "tsx scripts/provider-check.ts",
     "test:unit": "tsx --test tests/unit.test.ts",
     "test:smoke": "tsx tests/smoke.ts",
     "test:e2e": "playwright test"

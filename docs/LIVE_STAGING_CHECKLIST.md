@@ -52,14 +52,19 @@ MAX_DAILY_SPEND_KOPECKS=1500
 OUTPUT_HOST_ALLOWLIST=EXACT_VALIDATED_WAVESPEED_CDN_HOSTNAME
 ```
 4. Validate output CDN hostname from real, verified provider documentation or a provider result, not from an arbitrary public URL. **Without the allowlist results are deliberately not downloaded.** Do not use a wildcard or private-network hostname.
-5. Start staging web + worker using the isolated .env and database. Register a **new staging-only** user.
-6. Operator manually credits at most 1000 kopecks in total to that account (no HTTP admin topup endpoint):
+5. Before any charge, check the rotated API key, WaveSpeed organization balance and current Z-Image price (this command performs **no inference**):
+```bash
+docker compose run --rm --no-deps worker npm run provider:check
+```
+   A zero provider balance is insufficient for a paid test; the pricing result is not a completed generation. The command never prints the API key.
+6. Start staging web + worker using the isolated .env and database. Register a **new staging-only** user.
+7. Operator manually credits at most 1000 kopecks in total to that account (no HTTP admin topup endpoint):
 ```bash
 docker compose exec -T worker npm run staging:credit -- staging-user@example.com 800
 ```
-7. Open /apps/text-to-image, quote 1024x1024 Z-Image Turbo. Check the RUB price and provider USD rate against the expected ceiling. Confirm exactly **one** order.
-8. Observe job via /dashboard or /library and `docker compose logs --tail=100 worker`. On successful completion, check that media is downloaded privately, accessible only to that user, and the reserved RUB amount captured. Verify external actual cost against provider history.
-9. Turn off STAGING_MANUAL_CREDIT_ENABLED after issuing the test credit; restart staging services to enforce the flag. Rotate the staging key after any accidental exposure.
+8. Open /apps/text-to-image, quote 1024x1024 Z-Image Turbo. Check the RUB price and provider USD rate against the expected ceiling. Confirm exactly **one** order.
+9. Observe job via /dashboard or /library and `docker compose logs --tail=100 worker`. On successful completion, check that media is downloaded privately, accessible only to that user, and the reserved RUB amount captured. Verify external actual cost against provider history.
+10. Turn off STAGING_MANUAL_CREDIT_ENABLED after issuing the test credit; restart staging services to enforce the flag. Rotate the staging key after any accidental exposure.
 
 ## Safe failure behavior
 

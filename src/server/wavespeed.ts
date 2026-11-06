@@ -21,6 +21,12 @@ async function call(path:string,method:"POST"|"GET", body?:object):Promise<Recor
   if(raw.code!==200||!raw.data) throw new HttpError(502,"PROVIDER_ERROR","Некорректный ответ WaveSpeed API: "+String(raw.message??"unknown"));
   return raw.data;
 }
+export async function providerBalance():Promise<string>{
+  const data=await call("/balance","GET");
+  if(typeof data.balance!=="number"||!Number.isFinite(data.balance)||data.balance<0)
+    throw new HttpError(502,"PROVIDER_BALANCE_INVALID","WaveSpeed returned invalid balance");
+  return String(data.balance);
+}
 export function priceRequestBody(modelId:string,input:Record<string,unknown>){
   return {model_id:modelId,inputs:input};
 }
