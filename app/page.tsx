@@ -15,7 +15,7 @@ export default function HomePage() {
             </p>
             <div className="hero-actions">
               <Link href="/#catalog" className="button button-primary">Смотреть приложения <span aria-hidden="true">↗</span></Link>
-              <span className="hero-caption">В разработке · пока бесплатно смотреть</span>
+              <span className="hero-caption">Можно тестировать весь сценарий через сайт</span>
             </div>
             <div className="hero-points">
               <span>✳ Готовые сценарии</span>
@@ -48,7 +48,7 @@ export default function HomePage() {
             <h2 id="catalog-title">Каталог AI Apps</h2>
             <p>Выбери задачу — мы предложим простой интерфейс без сложных технических параметров.</p>
           </div>
-          <span className="catalog-pill">10 приложений · концепты</span>
+          <span className="catalog-pill">10 AI Apps · MVP</span>
         </div>
         <CatalogExplorer />
       </section>
@@ -68,7 +68,7 @@ export default function HomePage() {
           </div>
         </div>
       </section>
-      <div className="container"><div className="demo-notice">Это демонстрация интерфейса. Приложения не вызывают WaveSpeed и не принимают платежи.</div></div>
+      <div className="container"><div className="demo-notice">В стартовой конфигурации задачи обрабатываются тестовым адаптером: он возвращает демонстрационные файлы. Реальная генерация через WaveSpeed включается администратором после отдельной проверки.</div></div>
     </main>
   );
 }

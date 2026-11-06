@@ -26,6 +26,7 @@ jobs:
       PAYMENT_MODE: disabled
       ALLOW_LIVE_PAYMENTS: "false"
       STORAGE_DIR: ./private-media
+      DEMO_CREDIT_ENABLED: "true"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

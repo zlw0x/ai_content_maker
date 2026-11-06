@@ -53,7 +53,7 @@ export const modelSpecs: Record<string, ModelSpec> = {
   },
   "ai-voiceover": {
     modelId:"minimax/speech-2.6-hd",mode:"text",
-    inputSchema:z.object({text:z.string().trim().min(1).max(5000),voice:z.enum(["Friendly_Person","Wise_Woman","Calm_Woman","Deep_Voice_Man"]).default("Friendly_Person"),speed:z.number().min(0.5).max(2).default(1)}),
+    inputSchema:z.object({text:z.string().trim().min(1).max(5000),voice:z.enum(["Russian_ReliableMan","Russian_AttractiveGuy","Russian_BrightHeroine","Russian_AmbitiousWoman"]).default("Russian_ReliableMan"),speed:z.number().min(0.5).max(2).default(1)}),
     build:i=>({text:i.text,voice_id:i.voice,speed:i.speed,format:"mp3",language_boost:"Russian"})
   },
   "upscale": {

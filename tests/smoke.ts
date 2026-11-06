@@ -1,7 +1,6 @@
 import {randomUUID} from "node:crypto";
 import assert from "node:assert/strict";
-import {db,transaction} from "../src/server/db";
-import {creditConfirmedPayment} from "../src/server/wallet";
+import {db} from "../src/server/db";
 
 const origin=process.env.APP_ORIGIN??"http://localhost:3000";
 async function main(){
@@ -22,14 +21,13 @@ async function main(){
   assert.equal(registered.response.status,201,JSON.stringify(registered.body));
   cookie=registered.response.headers.get("set-cookie")?.split(";")[0]??"";
   assert.ok(cookie.startsWith("acm_session="));
-  const userId=registered.body.user.id as string;
   const credit=50000;
-  await transaction(async c=>{
-    const id=randomUUID();
-    await c.query(`INSERT INTO payments(id,user_id,client_idempotency_key,amount_kopecks,status,provider,external_payment_id)
-      VALUES($1,$2,$3,$4,'succeeded','dev',$5)`,[id,userId,id,credit,"dev-"+id]);
-    await creditConfirmedPayment(c,id,userId,credit);
-  });
+  const testBalance=await api("/api/v1/demo/credit","POST",{});
+  assert.equal(testBalance.response.status,200,JSON.stringify(testBalance.body));
+  assert.equal(testBalance.body.credited,true);
+  const again=await api("/api/v1/demo/credit","POST",{});
+  assert.equal(again.body.credited,false);
+  assert.equal(again.body.amountKopecks,0);
   const quote=await api("/api/v1/quotes","POST",{appSlug:"text-to-image",input:{prompt:"An abstract electric blue sculpture"}});
   assert.equal(quote.response.status,201,JSON.stringify(quote.body));
   const key=randomUUID();
