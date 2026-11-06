@@ -13,3 +13,6 @@ private-media/
 
 playwright-report/
 test-results/
+
+# The staging example is safe to version; the generated .env.staging is not.
+!.env.staging.example

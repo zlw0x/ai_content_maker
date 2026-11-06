@@ -1,0 +1,53 @@
+# Isolated, single-use paid test. Does not touch normal compose.yaml volumes.
+# The staging DB is deliberately NOT published to the host.
+x-staging-app: &staging-app
+  build: .
+  restart: unless-stopped
+  env_file:
+    - .env.staging
+  environment:
+    DATABASE_URL: postgresql://${POSTGRES_USER:-acm_staging}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.staging}@db:5432/${POSTGRES_DB:-acm_staging}
+    STORAGE_DIR: /app/private-media
+  volumes:
+    - staging_media:/app/private-media
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-acm_staging}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.staging}
+      POSTGRES_DB: ${POSTGRES_DB:-acm_staging}
+    volumes:
+      - staging_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-acm_staging} -d ${POSTGRES_DB:-acm_staging}"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+  migrate:
+    <<: *staging-app
+    restart: "no"
+    command: ["npm","run","db:migrate"]
+    depends_on:
+      db:
+        condition: service_healthy
+  web:
+    <<: *staging-app
+    ports:
+      - "127.0.0.1:3100:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: ["npm","run","start"]
+  worker:
+    <<: *staging-app
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: ["npm","run","worker"]
+
+volumes:
+  staging_pgdata:
+  staging_media:
