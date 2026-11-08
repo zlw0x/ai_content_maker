@@ -5,6 +5,7 @@ import Link from "next/link";
 import {useRouter} from "next/navigation";
 import type {AiApp} from "@/lib/catalog";
 import {api,ApiError,rub} from "@/lib/api-client";
+import {bRollMoods,bRollMoodLabels,type BRollMood} from "@/lib/b-roll";
 
 type Quote={id:string;amountKopecks:number;expiresInSeconds:number;currency:"RUB"};
 type Order={id:string;status:string;priceKopecks:number};
@@ -16,6 +17,7 @@ export function AppDemo({app}:{app:AiApp}){
   const [resolution,setResolution]=useState("480p");
   const [duration,setDuration]=useState(5);
   const [orientation,setOrientation]=useState("landscape");
+  const [mood,setMood]=useState<BRollMood>("cinematic");
   const [voice,setVoice]=useState("Russian_ReliableMan");
   const [speed,setSpeed]=useState(1);
   const [strength,setStrength]=useState(0.6);
@@ -29,9 +31,11 @@ export function AppDemo({app}:{app:AiApp}){
   const needsImage=app.mode==="image-prompt"||app.mode==="image-only";
   const needsPrompt=app.mode!=="image-only";
   const isVideo=app.category==="Видео";
+  const isBRoll=app.mode==="scene";
   const isTextVideo=app.slug==="text-to-video";
   const isVoice=app.mode==="voice";
   const isImageText=app.slug==="text-to-image"||app.slug==="premium-image";
+  const promptLimit=isVoice?5000:isBRoll?240:2000;
   useEffect(()=>{
     void api<{mock:boolean}>("/system").then(s=>setIsMock(s.mock)).catch(()=>{});
   },[]);
@@ -46,6 +50,8 @@ export function AppDemo({app}:{app:AiApp}){
       if(input.duration===5||input.duration===8)setDuration(input.duration);
       if(input.resolution==="480p"||input.resolution==="720p")setResolution(input.resolution);
       if(input.orientation==="landscape"||input.orientation==="portrait")setOrientation(input.orientation);
+      const previousMood=bRollMoods.find(mood=>mood===input.mood);
+      if(previousMood)setMood(previousMood);
       if(typeof input.voice==="string")setVoice(input.voice);
       if(typeof input.speed==="number")setSpeed(input.speed);
       if(typeof input.strength==="number")setStrength(input.strength);
@@ -60,6 +66,7 @@ export function AppDemo({app}:{app:AiApp}){
     else if(needsPrompt)input.prompt=prompt;
     if(isImageText)input.size=size;
     if(isTextVideo){input.duration=duration;input.orientation=orientation;}
+    if(isBRoll){input.mood=mood;input.orientation=orientation;}
     if(app.slug==="photo-to-video"){input.resolution=resolution;input.duration=duration;}
     if(app.slug==="photo-editor")input.strength=strength;
     return input;
@@ -98,6 +105,7 @@ export function AppDemo({app}:{app:AiApp}){
   }
   return <div className="generation-panel">
     <div className="generation-heading"><h2>Создать</h2><span className="demo-chip">{isMock?"Тестовый режим":"WaveSpeed API"}</span></div>
+    <fieldset className="generation-fields" disabled={busy!==null}>
     {needsImage&&<div className="form-field">
       <label htmlFor="input-photo">Исходное изображение</label>
       <div className="upload-box">
@@ -108,10 +116,15 @@ export function AppDemo({app}:{app:AiApp}){
       </div>
     </div>}
     {needsPrompt&&<div className="form-field">
-      <label htmlFor="prompt">{isVoice?"Текст озвучки":"Опиши желаемый результат"}</label>
-      <textarea id="prompt" value={prompt} maxLength={isVoice?5000:2000} rows={5} placeholder={app.examples[0]}
+      <label htmlFor="prompt">{isVoice?"Текст озвучки":isBRoll?"Что происходит в кадре?":"Опиши желаемый результат"}</label>
+      <textarea id="prompt" value={prompt} maxLength={promptLimit} rows={isBRoll?3:5} placeholder={app.examples[0]}
         onChange={e=>change(()=>setPrompt(e.target.value))} />
-      <span className="field-help">{prompt.length} / {isVoice?5000:2000} символов</span>
+      <span className="field-help">{prompt.length} / {promptLimit} символов</span>
+    </div>}
+    {isBRoll&&<div className="form-field"><label htmlFor="b-roll-mood">Атмосфера</label>
+      <select id="b-roll-mood" value={mood} onChange={e=>change(()=>setMood(e.target.value as BRollMood))}>
+        {bRollMoods.map(mood=><option key={mood} value={mood}>{bRollMoodLabels[mood]}</option>)}
+      </select>
     </div>}
     {isImageText&&<div className="form-field"><label htmlFor="image-size">Размер изображения</label>
       <select id="image-size" value={size} onChange={e=>change(()=>setSize(e.target.value))}>
@@ -122,12 +135,13 @@ export function AppDemo({app}:{app:AiApp}){
       <input id="strength" type="range" min="0.1" max="0.9" step="0.1" value={strength} onChange={e=>change(()=>setStrength(Number(e.target.value)))}/>
     </div>}
     {isVideo&&<div className="form-columns">
-      {isTextVideo?<div className="form-field"><label htmlFor="orientation">Формат</label><select id="orientation" value={orientation} onChange={e=>change(()=>setOrientation(e.target.value))}>
+      {isTextVideo||isBRoll?<div className="form-field"><label htmlFor="orientation">Формат</label><select id="orientation" value={orientation} onChange={e=>change(()=>setOrientation(e.target.value))}>
         <option value="landscape">Горизонтальный</option><option value="portrait">Вертикальный</option></select></div>:
       <div className="form-field"><label htmlFor="resolution">Качество</label><select id="resolution" value={resolution} onChange={e=>change(()=>setResolution(e.target.value))}>
         <option value="480p">480p</option><option value="720p">720p</option></select></div>}
-      <div className="form-field"><label htmlFor="duration">Длительность</label><select id="duration" value={duration} onChange={e=>change(()=>setDuration(Number(e.target.value)))}>
+      {isBRoll?<p className="field-help">Клип на 5 секунд</p>:<div className="form-field"><label htmlFor="duration">Длительность</label><select id="duration" value={duration} onChange={e=>change(()=>setDuration(Number(e.target.value)))}>
         <option value={5}>5 секунд</option><option value={8}>8 секунд</option></select></div>
+      }
     </div>}
     {isVoice&&<div className="form-columns">
       <div className="form-field"><label htmlFor="voice">Голос</label><select id="voice" value={voice} onChange={e=>change(()=>setVoice(e.target.value))}>
@@ -139,6 +153,7 @@ export function AppDemo({app}:{app:AiApp}){
       <div className="form-field"><label htmlFor="speed">Скорость</label><select id="speed" value={speed} onChange={e=>change(()=>setSpeed(Number(e.target.value)))}>
         <option value={0.8}>Медленно</option><option value={1}>Обычная</option><option value={1.2}>Быстро</option></select></div>
     </div>}
+    </fieldset>
     <div className="price-summary">
       <div><strong>{quote?rub(quote.amountKopecks):"По расчёту"}</strong><span>{quote?"Итоговая цена":"Цена уточняется у сервера"}</span></div>
       <small>{quote?"Котировка действительна 10 минут. Итоговая сумма будет зарезервирована после подтверждения.":"Сначала получим точную стоимость и покажем её до создания заказа."}</small>

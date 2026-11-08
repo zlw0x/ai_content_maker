@@ -261,6 +261,10 @@ h1,h2,h3,p { margin-top: 0; }
 .output-list{display:flex;flex-wrap:wrap;gap:8px}
 .generation-panel .full-width{width:100%;margin-bottom:12px}
 .generation-panel input[type="range"]{width:100%;accent-color:#ba9eff}
+.generation-fields, .product-card-fields { border: 0; min-width: 0; padding: 0; margin: 0; }
+.product-card-fields input:not([type=file]) { width: 100%; border: 1px solid var(--stroke); color: var(--ink); background: #0b1020; border-radius: 11px; padding: 12px 13px; font: inherit; font-size: 13px; }
+.product-card-result { display: grid; gap: 12px; margin-top: 18px; }
+.product-card-result img { width: 100%; height: auto; border-radius: 12px; }
 @media (max-width:900px){.wallet-grid{grid-template-columns:1fr 1fr}.wallet-actions{grid-column:span 2}}
 @media (max-width:680px){.wallet-grid,.jobs-list{grid-template-columns:1fr}.wallet-actions{grid-column:auto}.dashboard-header{align-items:start}.auth-card{padding:25px}.main-nav{gap:12px}.main-nav a{font-size:12px}}
 @media (max-width:435px){.main-nav a[href="/#how"]{display:none}.main-nav{gap:8px}.brand{font-size:15px}.brand-symbol{width:26px;height:26px}.main-nav a{font-size:11px}.dashboard-header h1{font-size:30px}.dashboard-header .button{padding:8px;font-size:12px}}

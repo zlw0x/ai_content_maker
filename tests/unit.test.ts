@@ -22,9 +22,20 @@ test("Text-to-image uses a vetted model and drops unrecognized properties",()=>{
 test("Video models restrict duration and quality",()=>{
   assert.throws(()=>prepareApp("photo-to-video",{prompt:"Move camera",imageAssetId:"fa6b22f6-d683-43ad-af25-fda2d884f944",duration:90,resolution:"1080p"}));
 });
-test("All ten catalog apps have an allowlisted model adapter",()=>{
-  assert.equal(apps.length,10);
-  for(const item of apps)assert.ok(modelSpecs[item.slug],item.slug);
+test("Only provider-backed catalog apps have an allowlisted model adapter",()=>{
+  for(const item of apps)assert.equal(Boolean(modelSpecs[item.slug]),item.mode!=="product-card",item.slug);
+});
+test("B-roll compiles a short scene and allowed mood into a fixed five-second video",()=>{
+  const app=prepareApp("ai-b-roll",{prompt:"  Пар над чашкой кофе  ",mood:"soft",orientation:"portrait",duration:30});
+  const request=app.spec.build(app.input);
+  assert.equal(app.modelId,modelSpecs["text-to-video"].modelId);
+  assert.equal(app.input.prompt,"Пар над чашкой кофе");
+  assert.match(String(request.prompt),/diffused light.*Пар над чашкой кофе/);
+  assert.equal(request.duration,5);
+  assert.equal(request.size,"480*832");
+  assert.throws(()=>prepareApp("ai-b-roll",{prompt:"Пар над чашкой кофе",mood:"arbitrary"}));
+  assert.throws(()=>prepareApp("ai-b-roll",{prompt:"x".repeat(241)}));
+  assert.equal(classifyApp("ai-b-roll"),"video");
 });
 test("Voiceover allows only predefined voice IDs",()=>{
   const spec=prepareApp("ai-voiceover",{text:"Привет, мир!",voice:"Russian_BrightHeroine",speed:1});

@@ -14,8 +14,8 @@ export function AppCard({ app }: { app: AiApp }) {
         <h3>{app.title}</h3>
         <p>{app.subtitle}</p>
         <div className="app-card-bottom">
-          <span>{app.demoStartingPrice === null ? "Цена уточняется" : "Планируем от " + app.demoStartingPrice + " ₽"}</span>
-          <span className="demo-chip">Демо</span>
+          <span>{app.mode === "product-card" ? "Бесплатно" : app.demoStartingPrice === null ? "Цена уточняется" : "Планируем от " + app.demoStartingPrice + " ₽"}</span>
+          <span className="demo-chip">{app.mode === "product-card" ? "В браузере" : "Демо"}</span>
         </div>
       </div>
     </Link>

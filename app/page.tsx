@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CatalogExplorer } from "@/components/catalog-explorer";
+import { apps } from "@/lib/catalog";
 
 export default function HomePage() {
   return (
@@ -48,7 +49,7 @@ export default function HomePage() {
             <h2 id="catalog-title">Каталог AI Apps</h2>
             <p>Выбери задачу — мы предложим простой интерфейс без сложных технических параметров.</p>
           </div>
-          <span className="catalog-pill">10 AI Apps · MVP</span>
+          <span className="catalog-pill">{apps.length} AI Apps · MVP</span>
         </div>
         <CatalogExplorer />
       </section>

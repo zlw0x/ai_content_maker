@@ -5,6 +5,7 @@ import {assert,HttpError} from "./errors";
 const uuid=z.string().uuid();
 const filter=z.enum(["all","image","video","audio"]);
 const PAGE_SIZE=18;
+const videoApps=["photo-to-video","text-to-video","ai-b-roll"];
 
 export type LibraryItem={
   id:string;appSlug:string;status:string;createdAt:string;finishedAt:string|null;
@@ -17,7 +18,7 @@ type Row={
   assetId:string|null;mediaType:string|null;expiresAt:string|null;
 };
 export function classifyApp(slug:string):"image"|"video"|"audio"{
-  if(["photo-to-video","text-to-video"].includes(slug))return "video";
+  if(videoApps.includes(slug))return "video";
   if(slug==="ai-voiceover")return "audio";
   return "image";
 }
@@ -30,7 +31,7 @@ export async function listLibrary(userId:string,kindRaw:string|null,pageRaw:stri
     SELECT j.id,j.app_slug AS "appSlug",j.status,j.created_at AS "createdAt",
       j.finished_at AS "finishedAt",j.reserved_kopecks AS "priceKopecks",
       coalesce(q.user_input_json->>'prompt',q.user_input_json->>'text') AS prompt,
-      CASE WHEN j.app_slug IN ('photo-to-video','text-to-video') THEN 'video'
+      CASE WHEN j.app_slug=ANY($5::text[]) THEN 'video'
            WHEN j.app_slug='ai-voiceover' THEN 'audio' ELSE 'image' END AS kind,
       a.id AS "assetId",a.media_type AS "mediaType",a.expires_at AS "expiresAt"
     FROM generation_jobs j JOIN price_quotes q ON q.id=j.quote_id
@@ -42,11 +43,11 @@ export async function listLibrary(userId:string,kindRaw:string|null,pageRaw:stri
     ) a ON true
     WHERE j.user_id=$1 AND j.hidden_at IS NULL
       AND ($2::text='all' OR
-        CASE WHEN j.app_slug IN ('photo-to-video','text-to-video') THEN 'video'
+        CASE WHEN j.app_slug=ANY($5::text[]) THEN 'video'
              WHEN j.app_slug='ai-voiceover' THEN 'audio' ELSE 'image' END=$2)
     ORDER BY j.created_at DESC,j.id DESC
     LIMIT $3 OFFSET $4
-  `,[userId,kind.data,PAGE_SIZE+1,page*PAGE_SIZE]);
+  `,[userId,kind.data,PAGE_SIZE+1,page*PAGE_SIZE,videoApps]);
   const hasMore=r.rows.length>PAGE_SIZE;
   const items:LibraryItem[]=r.rows.slice(0,PAGE_SIZE).map(x=>({
     id:x.id,appSlug:x.appSlug,status:x.status,createdAt:x.createdAt,finishedAt:x.finishedAt,
