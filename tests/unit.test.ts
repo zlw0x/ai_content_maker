@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {prepareApp,modelSpecs} from "../src/server/model-apps";
 import {apps} from "../src/lib/catalog";
+import {safeNext} from "../src/lib/api-client";
+import {getProductCardExample,productCardExamples} from "../src/lib/product-card-examples";
 import {inputDigest,quoteKopecks} from "../src/server/pricing";
 import {hashPassword,verifyPassword} from "../src/server/security";
 import {parseRange} from "../src/server/media-delivery";
@@ -24,6 +26,24 @@ test("Video models restrict duration and quality",()=>{
 });
 test("Only provider-backed catalog apps have an allowlisted model adapter",()=>{
   for(const item of apps)assert.equal(Boolean(modelSpecs[item.slug]),item.mode!=="product-card",item.slug);
+});
+test("Sign-in redirects keep known local paths and reject external paths disguised with control characters",()=>{
+  const next="/apps/product-card?example=candle-dark";
+  assert.equal(safeNext(next),next);
+  assert.equal(safeNext("//example.invalid"),"/dashboard");
+  assert.equal(safeNext("/\n/example.invalid"),"/dashboard");
+  assert.equal(safeNext("/\t/example.invalid"),"/dashboard");
+  assert.equal(safeNext("/\\example.invalid"),"/dashboard");
+});
+test("Showcase has twelve unique, local, selectable product-card examples",()=>{
+  assert.equal(productCardExamples.length,12);
+  assert.equal(new Set(productCardExamples.map(example=>example.id)).size,12);
+  for(const example of productCardExamples){
+    assert.equal(getProductCardExample(example.id),example);
+    assert.match(example.beforeUrl,/^\/examples\/product-card\/[a-z-]+\.png$/);
+    assert.match(example.afterUrl,/^\/examples\/product-card\/[a-z-]+\.webp$/);
+  }
+  assert.equal(getProductCardExample("https://example.invalid"),undefined);
 });
 test("B-roll compiles a short scene and allowed mood into a fixed five-second video",()=>{
   const app=prepareApp("ai-b-roll",{prompt:"  Пар над чашкой кофе  ",mood:"soft",orientation:"portrait",duration:30});

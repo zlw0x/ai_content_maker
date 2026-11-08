@@ -62,9 +62,27 @@ test("register, top up mock balance, request job, download result",async({page})
   await expect(page.getByLabel("Формат")).toHaveValue("portrait");
 });
 
-test("product card downloads a full-size PNG without an account",async({page})=>{
+test("showcase preserves the selected free recipe across registration and exports a full-size PNG",async({page})=>{
   await page.goto("/");
-  await page.getByRole("link",{name:/Карточка товара/}).click();
+  const showcase=page.getByRole("region",{name:"Витрина"});
+  await expect(showcase.getByRole("link",{name:/Создать так же/})).toHaveCount(12);
+  const example=showcase.getByRole("link",{name:/Создать так же — Свеча в стакане, Тёмная витрина/});
+  await example.click();
+  await expect(page).toHaveURL(/\/apps\/product-card\?example=candle-dark$/);
+  await expect(page.getByLabel("Фото товара")).toHaveCount(0);
+  await page.getByRole("link",{name:"Войти или зарегистрироваться"}).click();
+  await page.getByRole("button",{name:"Нет аккаунта? Зарегистрироваться"}).click();
+  await page.getByLabel("Email").fill("free-"+randomUUID()+"@example.invalid");
+  await page.getByLabel("Пароль").fill("Test Browser Password 2026!");
+  await page.getByRole("button",{name:"Зарегистрироваться",exact:true}).click();
+  await expect(page).toHaveURL(/\/apps\/product-card\?example=candle-dark$/);
+  await expect(page.getByLabel("Название товара")).toHaveValue("Свеча в стакане");
+  await expect(page.getByLabel("Оформление")).toHaveValue("2");
+  await page.getByRole("button",{name:"Создать карточку"}).click();
+  await expect(page.getByRole("img",{name:"Готовая карточка товара"})).toBeVisible();
+  await page.goto("/apps/product-card?example=unknown");
+  await expect(page.getByLabel("Название товара")).toHaveValue("");
+  await expect(page.getByLabel("Фото товара")).toHaveAttribute("required","");
   await page.getByLabel("Фото товара").setInputFiles({name:"photo.png",mimeType:"image/png",buffer:png});
   await page.getByLabel("Название товара").fill("Термокружка");
   await page.getByLabel("Преимущество (необязательно)").fill("450 мл");
