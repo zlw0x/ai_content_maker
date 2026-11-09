@@ -79,6 +79,7 @@ docker compose exec -T worker npm run staging:credit -- staging-user@example.com
 - Lost response to paid submission => job `unknown`, user funds stay reserved. **Never auto-resubmit.**
 - Upstream pricing changed/increased or unavailable before submission => release reservation and mark failed.
 - Upstream `completed` but media cannot be fetched => worker retries the safe GET/download, not the paid POST.
+- Downloads require an exact allowed hostname and a public DNS answer. The HTTPS connection uses the checked addresses, verifies the hostname certificate, refuses redirects, and limits the body including after decompression. A DNS answer containing a local or reserved address fails before a connection opens.
 - Asset permissions are checked every time, including Range requests and inline previews. No public CDN URLs are given to the browser.
 
 ## Remaining production milestones
