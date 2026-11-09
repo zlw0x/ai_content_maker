@@ -31,7 +31,7 @@ const publicLookup: LookupFunction = (hostname, options, callback) => {
   dns.lookup(hostname, { all: true }, (error, addresses) => {
     if (error) return callback(error, []);
     if (!addresses.length || addresses.some(address => !isPublicAddress(address))) {
-      return callback(new HttpError(502, "UNSAFE_MEDIA_ADDRESS", "CDN результата разрешился в недопустимый адрес"), []);
+      return callback(new HttpError(502, "UNSAFE_MEDIA_ADDRESS", "Хранилище провайдера разрешилось в недопустимый адрес"), []);
     }
     if (options.all) return callback(null, addresses);
     const [first] = addresses;
@@ -39,15 +39,31 @@ const publicLookup: LookupFunction = (hostname, options, callback) => {
   });
 };
 
+export function parseProviderMediaUrl(raw: string) {
+  try {
+    const url = new URL(raw);
+    const host = url.hostname;
+    if (url.protocol !== "https:" || url.username || url.password || url.port || !host ||
+      isIP(host) || host.startsWith("[") || host === "localhost" ||
+      [".localhost", ".local", ".internal"].some(suffix => host.endsWith(suffix))) return null;
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+function pinnedOptions(url: URL, signal: AbortSignal): https.RequestOptions & Pick<TcpNetConnectOpts, "autoSelectFamily"> {
+  return {
+    lookup: publicLookup, autoSelectFamily: true, agent: false, rejectUnauthorized: true, servername: url.hostname, signal,
+  };
+}
+
 export async function downloadProviderMedia(url: URL, maxBytes: number) {
   const signal = AbortSignal.timeout(120_000);
-  const options: https.RequestOptions & Pick<TcpNetConnectOpts, "autoSelectFamily"> = {
-    lookup: publicLookup, autoSelectFamily: true, agent: false, rejectUnauthorized: true, signal,
-    headers: { "accept-encoding": "gzip, deflate, br" },
-  };
   try {
     const response = await new Promise<IncomingMessage>((resolve, reject) => {
-      https.get(url, options, resolve).once("error", reject);
+      https.get(url, { ...pinnedOptions(url, signal), headers: { "accept-encoding": "gzip, deflate, br" } }, resolve)
+        .once("error", reject);
     });
     if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
       response.destroy();
@@ -80,5 +96,30 @@ export async function downloadProviderMedia(url: URL, maxBytes: number) {
   } catch (error) {
     if (error instanceof HttpError) throw error;
     throw new HttpError(502, "OUTPUT_DOWNLOAD_FAILED", "Результат пока недоступен");
+  }
+}
+
+export async function putProviderMedia(url: URL, body: Buffer, signedHeaders: Record<string, string> = {}) {
+  try {
+    const headers = new Headers(signedHeaders);
+    const host = headers.get("host");
+    const length = headers.get("content-length");
+    if ((host !== null && host.toLowerCase() !== url.host) || (length !== null && length !== String(body.length)) ||
+      ["authorization", "proxy-authorization", "transfer-encoding", "expect", "upgrade"].some(name => headers.has(name))) {
+      throw new HttpError(502, "BAD_UPLOAD_HEADERS", "Недопустимые заголовки загрузки");
+    }
+    headers.set("content-length", String(body.length));
+    const response = await new Promise<IncomingMessage>((resolve, reject) => {
+      https.request(url, {
+        ...pinnedOptions(url, AbortSignal.timeout(120_000)), method: "PUT", headers: Object.fromEntries(headers),
+      }, resolve).once("error", reject).end(body);
+    });
+    response.destroy();
+    if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
+      throw new HttpError(502, "UPLOAD_FAILED", "Загрузка изображения не удалась");
+    }
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+    throw new HttpError(502, "UPLOAD_FAILED", "Загрузка изображения не удалась");
   }
 }

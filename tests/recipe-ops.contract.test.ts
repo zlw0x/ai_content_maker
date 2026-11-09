@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, readFile, rmdir, unlink, writeFile } from "node:fs/promises";
+import type { ClientRequest, IncomingMessage } from "node:http";
+import https from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -35,13 +38,26 @@ test("recipe operations recover results without resubmission and reconcile provi
   const prediction = `fixture-${runId}`;
   const recovered = `recovered-${runId}`;
   const submitUrl = "https://api.wavespeed.ai/api/v3/wavespeed-ai/image-background-remover";
+  const uploadUrl = "https://files.example.invalid/upload";
   let quoted = 0.02;
   const requests: { method: string; url: string }[] = [];
+  context.mock.method(https, "request", (url: URL, options: https.RequestOptions, onResponse: (response: IncomingMessage) => void) => {
+    assert.equal(url.href, uploadUrl);
+    assert.equal(options.method, "PUT");
+    requests.push({ method: options.method, url: url.href });
+    const request = Object.assign(new EventEmitter(), {
+      end(body: Buffer) {
+        assert.ok(Buffer.isBuffer(body) && body.length > 0);
+        queueMicrotask(() => onResponse({ statusCode: 200, destroy() {} } as unknown as IncomingMessage));
+        return this;
+      },
+    });
+    return request as unknown as ClientRequest;
+  });
   context.mock.method(globalThis, "fetch", async (input: string | URL, init?: RequestInit) => {
     requests.push({ method: init?.method ?? "GET", url: String(input) });
     const reply = (data: object) => Response.json({ code: 200, data });
-    if (String(input).endsWith("/media/uploads")) return reply({ upload: { url: "https://files.example.invalid/upload", method: "PUT" }, download_url: "https://files.example.invalid/input.png" });
-    if (String(input) === "https://files.example.invalid/upload") return new Response(null, { status: 200 });
+    if (String(input).endsWith("/media/uploads")) return reply({ upload: { url: uploadUrl, method: "PUT" }, download_url: "https://files.example.invalid/input.png" });
     if (String(input).endsWith("/model/price")) return reply({ discounted_price: quoted, currency: "USD" });
     if (String(input) === submitUrl) throw new TypeError("Simulated lost response after submit");
     const id = [prediction, recovered].find(value => String(input) === `https://api.wavespeed.ai/api/v3/predictions/${value}/result`);

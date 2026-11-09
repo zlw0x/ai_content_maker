@@ -9,7 +9,7 @@ import test from "node:test";
 import { gzipSync } from "node:zlib";
 import { HttpError } from "../src/server/errors";
 import { readProviderImage } from "../src/server/media";
-import { downloadProviderMedia } from "../src/server/provider-media-download";
+import { downloadProviderMedia, putProviderMedia } from "../src/server/provider-media-http";
 
 process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test";
 process.env.WAVESPEED_MODE = "mock";
@@ -53,10 +53,43 @@ test("the HTTPS socket rejects nonpublic and mixed DNS answers before it connect
   }
   answers = [{ address: "3.174.113.12", family: 4 }, { address: "127.0.0.1", family: 4 }];
   await assert.rejects(downloadProviderMedia(url, 1024), code("UNSAFE_MEDIA_ADDRESS"));
+  await assert.rejects(putProviderMedia(url, png), code("UNSAFE_MEDIA_ADDRESS"));
   answers = [];
   await assert.rejects(downloadProviderMedia(url, 1024), code("UNSAFE_MEDIA_ADDRESS"));
-  assert.equal(resolve.mock.callCount(), 14);
+  assert.equal(resolve.mock.callCount(), 15);
   assert.equal(connections, 0);
+});
+
+test("signed PUT refuses unsafe headers before sending bytes and never follows a redirect", async t => {
+  let responseDestroyed = false;
+  const request = t.mock.method(https, "request", (url: URL, options: https.RequestOptions,
+    onResponse: (response: IncomingMessage) => void) => {
+    assert.equal(url.href, signedUrl.href);
+    assert.equal(options.method, "PUT");
+    assert.equal(options.servername, signedUrl.hostname);
+    assert.equal(options.rejectUnauthorized, true);
+    assert.ok(options.lookup);
+    const emitter = new EventEmitter();
+    return Object.assign(emitter, {
+      end(body: Buffer) {
+        assert.deepEqual(body, png);
+        queueMicrotask(() => onResponse({
+          statusCode: 307, headers: { location: "https://another.example.invalid/file" },
+          destroy() { responseDestroyed = true; },
+        } as unknown as IncomingMessage));
+      },
+    }) as ClientRequest;
+  });
+  for (const [name, value] of Object.entries({
+    host: "another.example.invalid", "content-length": "1", authorization: "unexpected",
+    "proxy-authorization": "unexpected", "transfer-encoding": "chunked", expect: "100-continue", upgrade: "websocket",
+  })) {
+    await assert.rejects(putProviderMedia(signedUrl, png, { [name]: value }), code("BAD_UPLOAD_HEADERS"));
+  }
+  assert.equal(request.mock.callCount(), 0);
+  await assert.rejects(putProviderMedia(signedUrl, png), code("UPLOAD_FAILED"));
+  assert.equal(request.mock.callCount(), 1);
+  assert.equal(responseDestroyed, true);
 });
 
 test("CDN requests preserve signed URLs and use only vetted addresses, without following redirects", async t => {

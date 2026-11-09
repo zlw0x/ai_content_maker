@@ -1,11 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { isIP } from "node:net";
 import { config } from "./config";
 import { db,one } from "./db";
 import { assert, HttpError } from "./errors";
-import { downloadProviderMedia } from "./provider-media-download";
+import { downloadProviderMedia, parseProviderMediaUrl } from "./provider-media-http";
 
 const MAX_INPUT=10*1024*1024;
 const MAX_OUTPUT=80*1024*1024;
@@ -72,16 +71,11 @@ export async function persistRecipeAsset(userId: string, body: Buffer): Promise<
   return id;
 }
 function validateOutputUrl(raw:string):URL {
-  let u:URL;
-  try { u=new URL(raw); }
-  catch { throw new HttpError(502,"UNSAFE_MEDIA_URL","Invalid output URL"); }
-  if(u.protocol!=="https:"||u.username||u.password||!u.hostname||u.port) throw new HttpError(502,"UNSAFE_MEDIA_URL","Invalid output URL");
-  const host=u.hostname.toLowerCase();
-  if(host==="localhost"||host.endsWith(".local")||host.endsWith(".internal")||isIP(host)||host.startsWith("[")||host.endsWith(".localhost"))
-    throw new HttpError(502,"UNSAFE_MEDIA_URL","Internal output URL refused");
+  const u=parseProviderMediaUrl(raw);
+  if(!u) throw new HttpError(502,"UNSAFE_MEDIA_URL","Invalid output URL");
   // The exact host allowlist and the HTTPS socket's DNS check are both required.
   const allowed=config().OUTPUT_HOST_ALLOWLIST.split(",").map(v=>v.trim().toLowerCase()).filter(Boolean);
-  if(!allowed.includes(host))throw new HttpError(502,"OUTPUT_HOST_NOT_ALLOWED",
+  if(!allowed.includes(u.hostname))throw new HttpError(502,"OUTPUT_HOST_NOT_ALLOWED",
     "Host результата не разрешён в OUTPUT_HOST_ALLOWLIST");
   return u;
 }
