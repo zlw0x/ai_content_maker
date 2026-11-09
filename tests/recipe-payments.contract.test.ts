@@ -7,7 +7,9 @@ import {
   applyMockRecipePayment,
   applyRecipePaymentEvent,
   applyRecipeRefundEvent,
+  checkRecipeSandbox,
   getRecipePayment,
+  getRecipePaymentMode,
   reconcileRecipePayment,
   reconcileRecipeRefund,
   requestRecipeRefund,
@@ -62,6 +64,65 @@ test("Recipe checkout contracts against an isolated, migrated PostgreSQL databas
     [owner, other, owner + "@example.invalid", other + "@example.invalid"]);
   await db().query(`INSERT INTO media_assets(id,user_id,kind,object_key,media_type,byte_size)
     VALUES($1::uuid,$2,'input',$1::uuid::text,'image/png',1)`, [asset, owner]);
+
+  await context.test("checkout availability and preflight distinguish a test shop from a payout gateway", async subtest => {
+    process.env.RECIPE_PAYMENT_MODE = "yookassa-test";
+    const fixtureKey = "test_*fixture";
+    const requests: string[] = [];
+    const root = "https://api.yookassa.ru/v3";
+    const shop = { account_id: "123456", test: true, status: "enabled", payment_methods: ["bank_card"] };
+    let account: object = shop;
+    let accountStatus = 200;
+    let payments: object = { type: "list", items: [] };
+    subtest.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+      assert.equal(init?.method, "GET");
+      assert.equal(init?.body, undefined);
+      assert.equal(new Headers(init?.headers).get("Authorization"), "Basic " + Buffer.from("123456:" + fixtureKey).toString("base64"));
+      const url = String(input);
+      requests.push(url);
+      if (url === root + "/me") return Response.json(account, { status: accountStatus });
+      assert.equal(url, root + "/payments?limit=1");
+      return Response.json(payments);
+    });
+
+    try {
+      delete process.env.YOOKASSA_TEST_SECRET_KEY;
+      assert.equal(getRecipePaymentMode(), "disabled");
+      const unpaid = await newOrder();
+      await assert.rejects(startRecipePayment(owner, unpaid), failure("RECIPE_TEST_SHOP_UNAVAILABLE"));
+      assert.equal(await getRecipePayment(owner, unpaid), null);
+      await assert.rejects(checkRecipeSandbox(), failure("RECIPE_TEST_SHOP_UNAVAILABLE"));
+      process.env.YOOKASSA_TEST_SECRET_KEY = "live_fixture";
+      assert.equal(getRecipePaymentMode(), "disabled");
+      assert.equal(requests.length, 0);
+
+      process.env.YOOKASSA_TEST_SECRET_KEY = fixtureKey;
+      assert.equal(getRecipePaymentMode(), "yookassa-test");
+      assert.deepEqual(await checkRecipeSandbox(), { ready: true, test: true, bankCard: true });
+      assert.deepEqual(requests.splice(0), [root + "/me", root + "/payments?limit=1"]);
+      payments = { type: "list", items: [{ test: false }] };
+      await assert.rejects(checkRecipeSandbox(), failure("RECIPE_TEST_SHOP_NOT_VERIFIED"));
+      assert.deepEqual(requests.splice(0), [root + "/me", root + "/payments?limit=1"]);
+
+      account = { account_id: "123456", test: true, status: "disabled", payout_balance: { value: "0.00", currency: "RUB" } };
+      await assert.rejects(checkRecipeSandbox(), failure("RECIPE_TEST_SHOP_PAYOUT_GATEWAY"));
+      assert.deepEqual(requests.splice(0), [root + "/me"]);
+      account = { ...shop, status: "disabled" };
+      await assert.rejects(checkRecipeSandbox(), failure("RECIPE_TEST_SHOP_DISABLED"));
+      assert.deepEqual(requests.splice(0), [root + "/me"]);
+      account = { ...shop, payment_methods: ["yoo_money"] };
+      await assert.rejects(checkRecipeSandbox(), failure("RECIPE_TEST_SHOP_NO_CARDS"));
+      assert.deepEqual(requests.splice(0), [root + "/me"]);
+      account = { ...shop, test: false };
+      await assert.rejects(checkRecipeSandbox(), failure("RECIPE_TEST_SHOP_NOT_VERIFIED"));
+      assert.deepEqual(requests.splice(0), [root + "/me"]);
+      accountStatus = 401;
+      await assert.rejects(checkRecipeSandbox(), failure("RECIPE_TEST_SHOP_AUTH"));
+      assert.deepEqual(requests, [root + "/me"]);
+    } finally {
+      process.env.YOOKASSA_TEST_SECRET_KEY = "test_fixture";
+    }
+  });
 
   await context.test("mock checkout is owner-only, single-attempt, and refundable after confirmed failure", async () => {
     process.env.RECIPE_PAYMENT_MODE = "mock";

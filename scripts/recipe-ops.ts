@@ -1,12 +1,16 @@
 import { z } from "zod";
 import { db } from "../src/server/db";
 import { attachRecipeResult, recipeOpsReport, reconcileRecipeTrial, recordRecipeProviderCost, resumeRecipeResult } from "../src/server/recipe-ops";
-import { reconcileRecipePayment, reconcileRecipeRefund, verifyRecipeSandbox } from "../src/server/recipe-payments";
+import { checkRecipeSandbox, reconcileRecipePayment, reconcileRecipeRefund, verifyRecipeSandbox } from "../src/server/recipe-payments";
 
 async function main() {
   const args = process.argv.slice(2);
   if (args.length === 0 || (args.length === 1 && args[0] === "report")) {
     console.log(JSON.stringify(await recipeOpsReport(), null, 2));
+    return;
+  }
+  if (args.length === 1 && args[0] === "check-yookassa-sandbox") {
+    console.log(JSON.stringify(await checkRecipeSandbox(), null, 2));
     return;
   }
   const [action, orderId, value, extra, confirmation] = args;
@@ -28,7 +32,7 @@ async function main() {
   } else if (action === "verify-yookassa-sandbox" && args.length === 4) {
     console.log(JSON.stringify(await verifyRecipeSandbox(orderId, value, extra), null, 2));
   } else {
-    throw new Error("Команды: report | resume-result UUID | attach-result UUID PREDICTION_ID --history-checked | settle-trial UUID NET_USD --history-checked | record-provider-cost UUID PREDICTION_ID NET_USD --history-checked | reconcile-payment UUID PAYMENT_ID --history-checked | reconcile-refund UUID REFUND_ID --history-checked | verify-yookassa-sandbox DELIVERED_UUID CANCELED_UUID REFUNDED_UUID");
+    throw new Error("Команды: report | resume-result UUID | attach-result UUID PREDICTION_ID --history-checked | settle-trial UUID NET_USD --history-checked | record-provider-cost UUID PREDICTION_ID NET_USD --history-checked | reconcile-payment UUID PAYMENT_ID --history-checked | reconcile-refund UUID REFUND_ID --history-checked | check-yookassa-sandbox | verify-yookassa-sandbox DELIVERED_UUID CANCELED_UUID REFUNDED_UUID");
   }
 }
 

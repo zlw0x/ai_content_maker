@@ -46,7 +46,7 @@ const refundObject = z.object({
   metadata: z.object({ recipe_payment_id: uuid, recipe_refund_id: uuid }),
 });
 
-export function getRecipePaymentMode(): PaymentMode | "disabled" {
+function configuredPaymentMode(): PaymentMode | "disabled" {
   const mode = process.env.RECIPE_PAYMENT_MODE;
   if (mode !== "mock" && mode !== "yookassa-test") return "disabled";
   const settings = config();
@@ -55,16 +55,27 @@ export function getRecipePaymentMode(): PaymentMode | "disabled" {
   return mode;
 }
 
-function testCredentials() {
+function configuredTestCredentials() {
   const shop = process.env.YOOKASSA_TEST_SHOP_ID;
   const key = process.env.YOOKASSA_TEST_SECRET_KEY;
-  assert(shop && /^\d+$/.test(shop) && key && /^test_[A-Za-z0-9_-]+$/.test(key),
-    503, "RECIPE_TEST_SHOP_UNAVAILABLE", "Настройте ключ тестового магазина ЮKassa");
+  // The key is opaque after the test_ prefix. Do not assume it uses only URL-safe characters.
+  if (!shop || !/^\d+$/.test(shop) || !key || !/^test_[\x21-\x7e]+$/.test(key)) return null;
   return { shop, key };
 }
 
+export function getRecipePaymentMode(): PaymentMode | "disabled" {
+  const mode = configuredPaymentMode();
+  return mode === "yookassa-test" && !configuredTestCredentials() ? "disabled" : mode;
+}
+
+function testCredentials() {
+  const credentials = configuredTestCredentials();
+  assert(credentials, 503, "RECIPE_TEST_SHOP_UNAVAILABLE", "Настройте shopId и ключ тестового магазина ЮKassa");
+  return credentials;
+}
+
 function requireMode(expected?: PaymentMode): PaymentMode {
-  const mode = getRecipePaymentMode();
+  const mode = configuredPaymentMode();
   assert(mode !== "disabled" && (!expected || mode === expected),
     503, "RECIPE_PAYMENTS_DISABLED", "Этот режим оплаты недоступен");
   if (mode === "yookassa-test") testCredentials();
@@ -98,26 +109,64 @@ function checkoutUrl(value: string | undefined) {
   return url.href;
 }
 
+function fetchTestEndpoint(endpoint: string, { shop, key }: NonNullable<ReturnType<typeof configuredTestCredentials>>,
+  operation?: { key: string; body: object }) {
+  return fetch("https://api.yookassa.ru/v3" + endpoint, {
+    method: operation ? "POST" : "GET",
+    headers: {
+      Authorization: "Basic " + Buffer.from(shop + ":" + key).toString("base64"),
+      ...(operation ? { "Content-Type": "application/json", "Idempotence-Key": operation.key } : {}),
+    },
+    body: operation ? JSON.stringify(operation.body) : undefined,
+    cache: "no-store",
+    redirect: "error",
+    signal: AbortSignal.timeout(15_000),
+  });
+}
+
 async function testRequest(endpoint: string, operation?: { key: string; body: object }): Promise<unknown> {
   requireMode("yookassa-test");
-  const { shop, key } = testCredentials();
+  const credentials = testCredentials();
   try {
-    const response = await fetch("https://api.yookassa.ru/v3" + endpoint, {
-      method: operation ? "POST" : "GET",
-      headers: {
-        Authorization: "Basic " + Buffer.from(shop + ":" + key).toString("base64"),
-        ...(operation ? { "Content-Type": "application/json", "Idempotence-Key": operation.key } : {}),
-      },
-      body: operation ? JSON.stringify(operation.body) : undefined,
-      cache: "no-store",
-      redirect: "error",
-      signal: AbortSignal.timeout(15_000),
-    });
+    const response = await fetchTestEndpoint(endpoint, credentials, operation);
     if (!response.ok) throw new Error("Request failed");
     return await response.json();
   } catch {
     throw new HttpError(502, "RECIPE_PAYMENT_PROVIDER_ERROR", "Статус операции ЮKassa требует сверки");
   }
+}
+
+export async function checkRecipeSandbox() {
+  requireMode("yookassa-test");
+  const credentials = testCredentials();
+  async function read(endpoint: string): Promise<unknown> {
+    try {
+      const response = await fetchTestEndpoint(endpoint, credentials);
+      assert(response.status !== 401 && response.status !== 403, 502, "RECIPE_TEST_SHOP_AUTH",
+        "ЮKassa отклонила доступ. Проверьте shopId и ключ одного тестового магазина");
+      assert(response.ok, 502, "RECIPE_TEST_SHOP_CHECK_FAILED", "ЮKassa не ответила на проверку тестового магазина");
+      return await response.json();
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(502, "RECIPE_TEST_SHOP_CHECK_FAILED", "ЮKassa не ответила на проверку тестового магазина");
+    }
+  }
+
+  const settings = z.object({
+    account_id: z.string(), test: z.literal(true), status: z.enum(["enabled", "disabled"]),
+    payment_methods: z.array(z.string()).optional(), payout_balance: z.unknown().optional(),
+  }).safeParse(await read("/me"));
+  assert(settings.success && settings.data.account_id === credentials.shop, 409, "RECIPE_TEST_SHOP_NOT_VERIFIED",
+    "ЮKassa не подтвердила тестовый аккаунт с указанным ID");
+  assert(settings.data.payment_methods || settings.data.payout_balance === undefined, 409, "RECIPE_TEST_SHOP_PAYOUT_GATEWAY",
+    "ЮKassa подтвердила шлюз выплат. Для приёма платежей нужен shopId магазина, а не AgentID");
+  assert(settings.data.status === "enabled", 409, "RECIPE_TEST_SHOP_DISABLED", "Тестовый магазин ЮKassa отключён");
+  assert(settings.data.payment_methods?.includes("bank_card"), 409, "RECIPE_TEST_SHOP_NO_CARDS",
+    "Тестовая оплата банковской картой недоступна");
+  const payments = z.object({ type: z.literal("list"), items: z.array(z.object({ test: z.literal(true) })).max(1) })
+    .safeParse(await read("/payments?limit=1"));
+  assert(payments.success, 409, "RECIPE_TEST_SHOP_NOT_VERIFIED", "ЮKassa не подтвердила список тестовых платежей");
+  return { ready: true, test: true, bankCard: true };
 }
 
 function publicPayment(row: PaymentRow) {
