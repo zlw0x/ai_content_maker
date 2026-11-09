@@ -74,7 +74,7 @@ async function publish(job: Job, prepared: Buffer) {
   const files = await persistFiles(job.user_id, images);
   await transaction(async client => {
     const changed = await client.query(`UPDATE recipe_orders SET status='completed', prepared_asset_id=$4,
-      attempt_id=NULL, updated_at=now(), error_code=NULL WHERE id=$1 AND attempt_id=$2 AND status=$3`,
+      attempt_id=NULL, completed_at=now(), updated_at=now(), error_code=NULL WHERE id=$1 AND attempt_id=$2 AND status=$3`,
       [job.id, job.attempt_id, job.status, preparedAsset]);
     if (!changed.rowCount) return;
     await linkFiles(client, job.id, job.user_id, 1, files);
@@ -112,11 +112,15 @@ async function prepare(job: Job) {
   const claimed = await db().query(`UPDATE recipe_orders SET status='submitting', provider_cost_usd=$3, updated_at=now()
     WHERE id=$1 AND attempt_id=$2 AND status='preparing'`, [job.id, job.attempt_id, cost.toString()]);
   if (!claimed.rowCount) return;
+  let acceptedId: string | undefined;
   try {
-    const id = await submitPrediction(model, request);
-    await db().query(`UPDATE recipe_orders SET status='processing', provider_prediction_id=$3, attempt_id=NULL, submitted_at=now(), updated_at=now()
-      WHERE id=$1 AND attempt_id=$2 AND status='submitting'`, [job.id, job.attempt_id, id]);
+    acceptedId = await submitPrediction(model, request);
+    const saved = await db().query(`UPDATE recipe_orders SET status='processing', provider_prediction_id=$3, attempt_id=NULL,
+      submitted_at=now(), poll_deadline_at=now()+interval '15 minutes', updated_at=now()
+      WHERE id=$1 AND attempt_id=$2 AND status='submitting'`, [job.id, job.attempt_id, acceptedId]);
+    if (!saved.rowCount) console.error("Recipe prediction requires operator attachment", job.id, acceptedId);
   } catch (error) {
+    if (acceptedId) console.error("Recipe prediction requires operator attachment", job.id, acceptedId);
     const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
     if (declined.has(code)) await fail(job, code, false);
     else await db().query(`UPDATE recipe_orders SET status='unknown', error_code='SUBMISSION_UNCERTAIN',
@@ -148,7 +152,7 @@ export async function tickRecipeWorker() {
   await db().query(`UPDATE recipe_orders SET status='unknown', error_code='SUBMISSION_UNCERTAIN', attempt_id=NULL, updated_at=now()
     WHERE provider_mode=$1 AND status='submitting' AND updated_at<now()-interval '2 minutes'`, [mode]);
   await db().query(`UPDATE recipe_orders SET status='unknown', error_code='OUTPUT_RECONCILIATION_TIMEOUT', attempt_id=NULL, updated_at=now()
-    WHERE provider_mode=$1 AND status='processing' AND submitted_at<now()-interval '15 minutes'
+    WHERE provider_mode=$1 AND status='processing' AND coalesce(poll_deadline_at,submitted_at+interval '15 minutes')<now()
     AND (attempt_id IS NULL OR last_polled_at<now()-interval '4 minutes')`, [mode]);
   const processing = await claim("processing");
   if (processing) {

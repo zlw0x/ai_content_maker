@@ -10,6 +10,7 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "worker": "tsx scripts/worker.ts",
     "reconcile": "tsx scripts/reconcile-unknown.ts",
+    "recipe:ops": "tsx scripts/recipe-ops.ts",
     "dev:credit": "tsx scripts/dev-credit.ts",
     "staging:credit": "tsx scripts/staging-credit.ts",
     "provider:check": "tsx scripts/provider-check.ts",
@@ -18,6 +19,7 @@
     "test:smoke": "tsx tests/smoke.ts",
     "test:recipes": "tsx tests/recipe-orders.smoke.ts",
     "test:recipe-payments": "tsx --test tests/recipe-payments.contract.test.ts",
+    "test:recipe-ops": "tsx --test tests/recipe-ops.contract.test.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {

@@ -93,12 +93,12 @@ async function reserveTrial(client: PoolClient, userId: string, orderId: string,
     VALUES ($1, $2, $3, $4, 'reserved', $5)`, [userId, orderId, day, ipDigest, recipeCostCeilingUsd]);
 }
 
-export async function settleTrial(client: PoolClient, orderId: string, used: boolean) {
+export async function settleTrial(client: PoolClient, orderId: string, used: boolean, actualUsd?: string) {
   const { rows: [grant] } = await client.query<{ budget_day: string; ceiling_usd: string }>(`SELECT budget_day::text, ceiling_usd
     FROM recipe_trial_grants WHERE order_id=$1 AND state='reserved' FOR UPDATE`, [orderId]);
   if (!grant) return;
-  await client.query(`UPDATE recipe_trial_days SET reserved_usd=reserved_usd-$2,
-    used_usd=used_usd+CASE WHEN $3 THEN $2 ELSE 0 END WHERE day=$1`, [grant.budget_day, grant.ceiling_usd, used]);
+  await client.query(`UPDATE recipe_trial_days SET reserved_usd=reserved_usd-$2::numeric,
+    used_usd=used_usd+$3::numeric WHERE day=$1`, [grant.budget_day, grant.ceiling_usd, used ? actualUsd ?? grant.ceiling_usd : "0"]);
   if (used) await client.query("UPDATE recipe_trial_grants SET state='used' WHERE order_id=$1", [orderId]);
   else await client.query("DELETE FROM recipe_trial_grants WHERE order_id=$1", [orderId]);
 }

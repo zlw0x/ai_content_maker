@@ -60,10 +60,11 @@ export async function submitPrediction(modelId:string,input:Record<string,unknow
   if(typeof data.id!=="string"||!data.id) throw new HttpError(502,"UNKNOWN_PROVIDER_SUBMISSION","WaveSpeed did not return prediction ID");
   return data.id;
 }
-export async function getPrediction(id:string):Promise<Prediction> {
+export async function getPrediction(id:string, options?: { requireIdMatch?: boolean }):Promise<Prediction> {
   if(id.startsWith("mock-")&&config().WAVESPEED_MODE==="mock") return {id,status:"completed",outputs:[]};
   if(!/^[\w-]{5,180}$/.test(id)) throw new HttpError(422,"INVALID_PREDICTION","Invalid provider ID");
   const data=await call("/predictions/"+encodeURIComponent(id)+"/result","GET");
+  if(options?.requireIdMatch&&data.id!==id)throw new HttpError(502,"PREDICTION_ID_MISMATCH","WaveSpeed не подтвердил ID результата");
   return {
     id:String(data.id??id),
     status:String(data.status??"processing"),

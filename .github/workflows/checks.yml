@@ -46,6 +46,8 @@ jobs:
         run: npm run test:unit
       - name: Recipe payment contracts against isolated test database
         run: RECIPE_PAYMENT_TEST_DATABASE_URL="$DATABASE_URL" npm run test:recipe-payments
+      - name: Recipe operations against isolated test database
+        run: RECIPE_OPS_TEST_DATABASE_URL="$DATABASE_URL" npm run test:recipe-ops
       - name: Build
         run: npm run build
       - name: Validate Docker Compose configuration
