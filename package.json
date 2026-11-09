@@ -14,8 +14,10 @@
     "staging:credit": "tsx scripts/staging-credit.ts",
     "provider:check": "tsx scripts/provider-check.ts",
     "staging:one-shot": "tsx scripts/staging-one-shot.ts",
-    "test:unit": "tsx --test tests/unit.test.ts tests/provider.contract.test.ts",
+    "test:unit": "tsx --test tests/unit.test.ts tests/provider.contract.test.ts tests/recipe-render.test.ts tests/wavespeed-billing.test.ts",
     "test:smoke": "tsx tests/smoke.ts",
+    "test:recipes": "tsx tests/recipe-orders.smoke.ts",
+    "test:recipe-payments": "tsx --test tests/recipe-payments.contract.test.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {
@@ -24,6 +26,7 @@
     "pg": "^8.16.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "sharp": "0.35.5",
     "zod": "^3.25.0"
   },
   "devDependencies": {

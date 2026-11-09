@@ -7,6 +7,7 @@ import {persistOutput,persistMockOutput} from "./media";
 import {reconcileTopup} from "./operations";
 import {promises as fs} from "node:fs";
 import path from "node:path";
+import {tickRecipeWorker} from "./recipe-worker";
 
 type Job={id:string;user_id:string;model_id:string;provider_prediction_id:string|null;status:string;input_json:Record<string,unknown>;provider_cost_usd:string};
 
@@ -134,10 +135,12 @@ export async function runWorker():Promise<void> {
   while(!stopping) {
     try{
       await tickWorker();
+      await tickRecipeWorker();
       if(Date.now()-lastCleanup>60_000){
         await expireMedia();
         await reconcilePayments();
         await db().query("DELETE FROM sessions WHERE expires_at<now()");
+        await db().query("DELETE FROM email_verifications WHERE send_window<now()-interval '1 day'");
         lastCleanup=Date.now();
       }
     }catch(error){console.error("Worker tick failed",error);}

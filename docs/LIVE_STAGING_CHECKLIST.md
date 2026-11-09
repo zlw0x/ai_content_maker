@@ -1,5 +1,13 @@
 # Private user library and WaveSpeed staging
 
+## Результат изолированной проверки от 9 ноября 2026 года
+
+- Один оплаченный запрос `wavespeed-ai/z-image/turbo`, 1024 × 1024. Постатейный биллинг WaveSpeed показал одну операцию списания на $0,005 по ID задачи. Сумма совпала с серверной котировкой.
+- JPEG размером 121 995 байт скачан владельцем через `/api/v1/assets/:id`. Запрос без сессии получил HTTP 401. Ledger подтвердил одно списание, резерв вернулся к нулю.
+- Первый опрос результата выявил блокировку CDN. В проверенном ответе WaveSpeed указан `d2h7xmz5gqybh9.cloudfront.net`. Точный хост добавлен в staging allowlist. Worker повторил GET и сохранил исходный результат. Платный POST был один.
+- В отдельной базе проверена Студия. Удаление фона дало три приватных PNG 1200 × 1600 за один запрос ($0,004). Редактура сохранила исходный prediction ID. Улучшение фото VOSR2 в режиме Trial дало приватный PNG 2048 × 2048 за $0,010. Неавторизованный доступ к файлам вернул HTTP 401. Каждое списание сверено с отдельной строкой биллинга.
+- Для [витрины рецептов](../app/examples/page.tsx) обработаны четыре исходника из публичных демонстрационных файлов проекта. Четыре запроса удаления фона стоили $0,016. Из тех же результатов локально собрано 28 кандидатов, отобрано 12 примеров для трёх групп. Общая сверенная стоимость тестов и витрины составила $0,035 при лимите $0,70.
+
 ## Credential security
 
 An API key pasted into a conversation is not a safe deployment secret, even if someone calls it a "test" key. Rotate/revoke the previously shared **live-prefix** credential in WaveSpeed and use a fresh key only in the server-side .env on a separate staging host. Never put a key in git, PRs, logs, NEXT_PUBLIC_ variables or screenshots.

@@ -91,6 +91,11 @@ export async function deleteUserInput(userId:string,assetId:string){
       LIMIT 1
     `,[assetId,userId])).rows[0];
     assert(!used,409,"IMAGE_IN_USE","Изображение используется в действующем заказе или котировке");
+    const recipeUsed=await c.query(`SELECT 1 FROM recipe_quotes q LEFT JOIN recipe_orders o ON o.quote_id=q.id
+      LEFT JOIN recipe_payments p ON p.order_id=o.id WHERE q.asset_id=$1 AND q.user_id=$2 AND
+        ((o.id IS NULL AND q.expires_at>now()) OR o.status IN ('queued','preparing','submitting','processing','unknown') OR
+         (o.status='awaiting_payment' AND (o.expires_at>now() OR p.status IN ('pending','unknown')))) LIMIT 1`, [assetId,userId]);
+    assert(!recipeUsed.rowCount,409,"IMAGE_IN_USE","Изображение используется в действующем рецепте");
     await c.query("UPDATE media_assets SET deleted_at=now() WHERE id=$1",[assetId]);
     return {deleted:true};
   });

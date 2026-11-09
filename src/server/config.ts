@@ -22,6 +22,12 @@ const schema = z.object({
   WORKER_INTERVAL_MS: z.coerce.number().int().min(1000).default(3000),
   MOCK_COST_USD: z.coerce.number().positive().default(0.005),
   DEMO_CREDIT_ENABLED: z.enum(["true","false"]).default("false"),
+  RECIPE_ORDERS_ENABLED: z.enum(["true", "false"]).default("false"),
+  RECIPE_TRIAL_ENABLED: z.enum(["true", "false"]).default("false"),
+  RECIPE_TRIAL_DAILY_BUDGET_USD: z.coerce.number().nonnegative().max(1000).default(5),
+  RECIPE_EMAIL_DELIVERY: z.enum(["disabled", "mock", "webhook"]).default("disabled"),
+  RECIPE_EMAIL_WEBHOOK_URL: z.string().url().optional(),
+  RECIPE_EMAIL_WEBHOOK_SECRET: z.string().min(32).optional(),
   OUTPUT_HOST_ALLOWLIST: z.string().default(""),
   OUTPUT_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
   STAGING_MANUAL_CREDIT_ENABLED: z.enum(["true","false"]).default("false")
