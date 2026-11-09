@@ -4,6 +4,7 @@ import {prepareApp,modelSpecs} from "../src/server/model-apps";
 import {apps} from "../src/lib/catalog";
 import {safeNext} from "../src/lib/api-client";
 import {getProductCardExample,productCardExamples} from "../src/lib/product-card-examples";
+import {createProductCardRecipe,ProductCardInputError} from "../src/lib/product-card-recipe";
 import {inputDigest,quoteKopecks} from "../src/server/pricing";
 import {hashPassword,verifyPassword} from "../src/server/security";
 import {parseRange} from "../src/server/media-delivery";
@@ -44,6 +45,43 @@ test("Showcase has twelve unique, local, selectable product-card examples",()=>{
     assert.match(example.afterUrl,/^\/examples\/product-card\/[a-z-]+\.webp$/);
   }
   assert.equal(getProductCardExample("https://example.invalid"),undefined);
+});
+test("Local product recipe reuses the same run and renders changed uploads or styles",async()=>{
+  const file=new File(["image"],"same.png",{type:"image/png"});
+  const calls: unknown[][]=[];
+  const run=createProductCardRecipe(async (...args)=>{
+    calls.push(args);
+    return new Blob(["rendered"],{type:"image/png"});
+  });
+  const input={source:{file},title:"  Свеча ",benefit:"Два  фитиля",styleId:"dark"} as const;
+  const normalized={...input,title:"Свеча",benefit:"Два фитиля"};
+  const [first,concurrent]=await Promise.all([run(input),run(normalized)]);
+  assert.equal(first,concurrent);
+  assert.equal(first,await run(normalized));
+  assert.equal(calls.length,1);
+  assert.deepEqual(calls[0].slice(0,3),[file,"Свеча","Два фитиля"]);
+
+  const restyled=await run({...input,styleId:"bright"});
+  assert.notEqual(restyled,first);
+  const replacement=new File(["different"],file.name,{type:file.type});
+  assert.notEqual(await run({...input,styleId:"bright",source:{file:replacement}}),restyled);
+  assert.equal(calls.length,3);
+});
+
+test("Local product recipe validates before rendering and allows retry after a failed run",async()=>{
+  let attempts=0;
+  const run=createProductCardRecipe(async ()=>{
+    if (++attempts===1) throw new Error("render failed");
+    return new Blob(["rendered"],{type:"image/png"});
+  });
+  const input={source:{file:new File(["image"],"photo.png",{type:"image/png"})},title:"Свеча",benefit:"",styleId:"minimal"} as const;
+  await assert.rejects(run({...input,title:"  "}),ProductCardInputError);
+  await assert.rejects(run({...input,source:{exampleId:"https://example.invalid/photo.png"}}),ProductCardInputError);
+  await assert.rejects(run({...input,source:{file:new File([],"empty.png",{type:"image/png"})}}),ProductCardInputError);
+  assert.equal(attempts,0);
+  await assert.rejects(run(input),/render failed/);
+  assert.equal((await run(input)).type,"image/png");
+  assert.equal(attempts,2);
 });
 test("B-roll compiles a short scene and allowed mood into a fixed five-second video",()=>{
   const app=prepareApp("ai-b-roll",{prompt:"  Пар над чашкой кофе  ",mood:"soft",orientation:"portrait",duration:30});

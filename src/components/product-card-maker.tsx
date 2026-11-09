@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { getProductCardExample, productCardStyles as styles } from "@/lib/product-card-examples";
-import { cardHeight, cardWidth, makeProductCard } from "@/lib/render-product-card";
+import { createProductCardRecipe, ProductCardInputError, productCardRecipe } from "@/lib/product-card-recipe";
 
 export function ProductCardMaker({ exampleId }: { exampleId?: string }) {
   const example = getProductCardExample(exampleId);
@@ -10,41 +10,35 @@ export function ProductCardMaker({ exampleId }: { exampleId?: string }) {
   const [title, setTitle] = useState(example?.title ?? "");
   const [benefit, setBenefit] = useState(example?.benefit ?? "");
   const [styleIndex, setStyleIndex] = useState(example?.styleIndex ?? 0);
-  const [result, setResult] = useState<string | null>(null);
+  const [runRecipe] = useState(createProductCardRecipe);
+  const [result, setResult] = useState<Blob | null>(null);
+  const [preview, setPreview] = useState<{ blob: Blob; url: string } | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const { filename, width, height } = productCardRecipe.output;
 
   useEffect(() => {
-    if (result) return () => URL.revokeObjectURL(result);
+    if (!result) return;
+    const url = URL.createObjectURL(result);
+    setPreview({ blob: result, url });
+    return () => URL.revokeObjectURL(url);
   }, [result]);
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
-    setResult(null);
     setError("");
-    if (file && (file.size === 0 || file.size > 10 * 1024 * 1024 ||
-        !["image/jpeg", "image/png", "image/webp"].includes(file.type))) {
-      setError("Выберите фото в формате PNG, JPG или WebP размером до 10 МБ.");
-      return;
-    }
-    if (!title.trim()) {
-      setError("Введите название товара.");
-      return;
-    }
     setBusy(true);
     try {
-      let source: Blob | null = file;
-      if (!source && example) {
-        const response = await fetch(example.beforeUrl);
-        if (!response.ok) throw new Error("Не удалось загрузить фото примера");
-        source = await response.blob();
-      }
-      if (!source) throw new Error("Фото товара обязательно");
-      const png = await makeProductCard(source, title.trim(), benefit.trim().replace(/\s+/g, " "), styles[styleIndex]);
-      setResult(URL.createObjectURL(png));
-    } catch {
-      setError("Не удалось собрать карточку. Попробуйте открыть другое фото.");
+      setResult(await runRecipe({
+        source: file ? { file } : example ? { exampleId: example.id } : null,
+        title,
+        benefit,
+        styleId: styles[styleIndex].id,
+      }));
+    } catch (error) {
+      setError(error instanceof ProductCardInputError ? error.message :
+        "Не удалось собрать карточку. Попробуйте открыть другое фото.");
     } finally {
       setBusy(false);
     }
@@ -52,8 +46,8 @@ export function ProductCardMaker({ exampleId }: { exampleId?: string }) {
 
   return (
     <div className="generation-panel">
-      <div className="generation-heading"><h2>Собрать карточку</h2><span className="demo-chip">1200 × 1600</span></div>
-      <form onSubmit={create} onChange={() => { setResult(null); setError(""); }}>
+      <div className="generation-heading"><h2>Собрать карточку</h2><span className="demo-chip">{width} × {height}</span></div>
+      <form onSubmit={create} onChange={() => { setResult(null); setPreview(null); setError(""); }}>
         <fieldset className="product-card-fields" disabled={busy}>
           <div className="form-field">
             <label htmlFor="product-photo">Фото товара</label>
@@ -87,10 +81,10 @@ export function ProductCardMaker({ exampleId }: { exampleId?: string }) {
       </form>
       <p className="disabled-note">Фото остаётся в браузере. Карточка собирается бесплатно и сохраняется как PNG.</p>
       {error && <p role="alert" className="form-error">{error}</p>}
-      {result && <div className="product-card-result">
+      {result && preview?.blob === result && <div className="product-card-result">
         {/* The preview is a local blob URL. */}
-        <img src={result} alt="Готовая карточка товара" width={cardWidth} height={cardHeight} />
-        <a className="button button-secondary" href={result} download="product-card.png">Скачать PNG</a>
+        <img src={preview.url} alt="Готовая карточка товара" width={width} height={height} />
+        <a className="button button-secondary" href={preview.url} download={filename}>Скачать PNG</a>
       </div>}
     </div>
   );

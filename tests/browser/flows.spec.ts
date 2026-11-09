@@ -78,8 +78,30 @@ test("showcase preserves the selected free recipe across registration and export
   await expect(page).toHaveURL(/\/apps\/product-card\?example=candle-dark$/);
   await expect(page.getByLabel("Название товара")).toHaveValue("Свеча в стакане");
   await expect(page.getByLabel("Оформление")).toHaveValue("2");
-  await page.getByRole("button",{name:"Создать карточку"}).click();
+  const submit=page.getByRole("button",{name:"Создать карточку"});
+  let exampleRequests=0;
+  await page.route("**/examples/product-card/candle.png",async route=>{
+    if (++exampleRequests===1) await route.abort();
+    else await route.continue();
+  });
+  const generationRequests:string[]=[];
+  page.on("request",request=>{
+    if (/^\/api\/v1\/(?:assets|quotes|orders)(?:\/|$)/.test(new URL(request.url()).pathname)) {
+      generationRequests.push(request.url());
+    }
+  });
+  await submit.click();
+  await expect(page.getByRole("alert").filter({hasText:"Не удалось собрать карточку"})).toBeVisible();
+  await submit.click();
   await expect(page.getByRole("img",{name:"Готовая карточка товара"})).toBeVisible();
+  const exampleDownload=page.getByRole("link",{name:"Скачать PNG"});
+  const exampleHref=await exampleDownload.getAttribute("href");
+  expect(exampleHref).toMatch(/^blob:/);
+  await submit.click();
+  await expect(submit).toBeEnabled();
+  await expect(exampleDownload).toHaveAttribute("href",exampleHref!);
+  expect(await exampleDownload.evaluate(async (link: HTMLAnchorElement)=>(await fetch(link.href)).ok)).toBe(true);
+  expect(exampleRequests).toBe(2);
   await page.goto("/apps/product-card?example=unknown");
   await expect(page.getByLabel("Название товара")).toHaveValue("");
   await expect(page.getByLabel("Фото товара")).toHaveAttribute("required","");
@@ -99,6 +121,7 @@ test("showcase preserves the selected free recipe across registration and export
   expect(output.readUInt32BE(20)).toBe(1600);
   await page.getByLabel("Название товара").fill("Чашка");
   await expect(page.getByRole("link",{name:"Скачать PNG"})).toHaveCount(0);
+  expect(generationRequests).toEqual([]);
 });
 
 test("mobile catalog search and category filters",async({page})=>{
