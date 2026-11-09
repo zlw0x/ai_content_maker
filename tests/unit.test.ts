@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {prepareApp,modelSpecs} from "../src/server/model-apps";
 import {apps} from "../src/lib/catalog";
+import {safeNext} from "../src/lib/api-client";
+import {getProductCardExample,productCardExamples} from "../src/lib/product-card-examples";
+import {createProductCardRecipe,ProductCardInputError} from "../src/lib/product-card-recipe";
 import {inputDigest,quoteKopecks} from "../src/server/pricing";
 import {hashPassword,verifyPassword} from "../src/server/security";
 import {parseRange} from "../src/server/media-delivery";
@@ -22,9 +25,75 @@ test("Text-to-image uses a vetted model and drops unrecognized properties",()=>{
 test("Video models restrict duration and quality",()=>{
   assert.throws(()=>prepareApp("photo-to-video",{prompt:"Move camera",imageAssetId:"fa6b22f6-d683-43ad-af25-fda2d884f944",duration:90,resolution:"1080p"}));
 });
-test("All ten catalog apps have an allowlisted model adapter",()=>{
-  assert.equal(apps.length,10);
-  for(const item of apps)assert.ok(modelSpecs[item.slug],item.slug);
+test("Only provider-backed catalog apps have an allowlisted model adapter",()=>{
+  for(const item of apps)assert.equal(Boolean(modelSpecs[item.slug]),item.mode!=="product-card",item.slug);
+});
+test("Sign-in redirects keep known local paths and reject external paths disguised with control characters",()=>{
+  const next="/apps/product-card?example=candle-dark";
+  assert.equal(safeNext(next),next);
+  assert.equal(safeNext("//example.invalid"),"/dashboard");
+  assert.equal(safeNext("/\n/example.invalid"),"/dashboard");
+  assert.equal(safeNext("/\t/example.invalid"),"/dashboard");
+  assert.equal(safeNext("/\\example.invalid"),"/dashboard");
+});
+test("Showcase has twelve unique, local, selectable product-card examples",()=>{
+  assert.equal(productCardExamples.length,12);
+  assert.equal(new Set(productCardExamples.map(example=>example.id)).size,12);
+  for(const example of productCardExamples){
+    assert.equal(getProductCardExample(example.id),example);
+    assert.match(example.beforeUrl,/^\/examples\/product-card\/[a-z-]+\.png$/);
+    assert.match(example.afterUrl,/^\/examples\/product-card\/[a-z-]+\.webp$/);
+  }
+  assert.equal(getProductCardExample("https://example.invalid"),undefined);
+});
+test("Local product recipe reuses the same run and renders changed uploads or styles",async()=>{
+  const file=new File(["image"],"same.png",{type:"image/png"});
+  const calls: unknown[][]=[];
+  const run=createProductCardRecipe(async (...args)=>{
+    calls.push(args);
+    return new Blob(["rendered"],{type:"image/png"});
+  });
+  const input={source:{file},title:"  Свеча ",benefit:"Два  фитиля",styleId:"dark"} as const;
+  const normalized={...input,title:"Свеча",benefit:"Два фитиля"};
+  const [first,concurrent]=await Promise.all([run(input),run(normalized)]);
+  assert.equal(first,concurrent);
+  assert.equal(first,await run(normalized));
+  assert.equal(calls.length,1);
+  assert.deepEqual(calls[0].slice(0,3),[file,"Свеча","Два фитиля"]);
+
+  const restyled=await run({...input,styleId:"bright"});
+  assert.notEqual(restyled,first);
+  const replacement=new File(["different"],file.name,{type:file.type});
+  assert.notEqual(await run({...input,styleId:"bright",source:{file:replacement}}),restyled);
+  assert.equal(calls.length,3);
+});
+
+test("Local product recipe validates before rendering and allows retry after a failed run",async()=>{
+  let attempts=0;
+  const run=createProductCardRecipe(async ()=>{
+    if (++attempts===1) throw new Error("render failed");
+    return new Blob(["rendered"],{type:"image/png"});
+  });
+  const input={source:{file:new File(["image"],"photo.png",{type:"image/png"})},title:"Свеча",benefit:"",styleId:"minimal"} as const;
+  await assert.rejects(run({...input,title:"  "}),ProductCardInputError);
+  await assert.rejects(run({...input,source:{exampleId:"https://example.invalid/photo.png"}}),ProductCardInputError);
+  await assert.rejects(run({...input,source:{file:new File([],"empty.png",{type:"image/png"})}}),ProductCardInputError);
+  assert.equal(attempts,0);
+  await assert.rejects(run(input),/render failed/);
+  assert.equal((await run(input)).type,"image/png");
+  assert.equal(attempts,2);
+});
+test("B-roll compiles a short scene and allowed mood into a fixed five-second video",()=>{
+  const app=prepareApp("ai-b-roll",{prompt:"  Пар над чашкой кофе  ",mood:"soft",orientation:"portrait",duration:30});
+  const request=app.spec.build(app.input);
+  assert.equal(app.modelId,modelSpecs["text-to-video"].modelId);
+  assert.equal(app.input.prompt,"Пар над чашкой кофе");
+  assert.match(String(request.prompt),/diffused light.*Пар над чашкой кофе/);
+  assert.equal(request.duration,5);
+  assert.equal(request.size,"480*832");
+  assert.throws(()=>prepareApp("ai-b-roll",{prompt:"Пар над чашкой кофе",mood:"arbitrary"}));
+  assert.throws(()=>prepareApp("ai-b-roll",{prompt:"x".repeat(241)}));
+  assert.equal(classifyApp("ai-b-roll"),"video");
 });
 test("Voiceover allows only predefined voice IDs",()=>{
   const spec=prepareApp("ai-voiceover",{text:"Привет, мир!",voice:"Russian_BrightHeroine",speed:1});

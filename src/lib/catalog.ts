@@ -1,5 +1,5 @@
 export type AppCategory = "Изображения" | "Видео" | "Бизнес" | "Аудио" | "Инструменты";
-export type InputMode = "prompt" | "image-prompt" | "image-only" | "voice";
+export type InputMode = "prompt" | "image-prompt" | "image-only" | "voice" | "product-card" | "scene";
 
 export type AiApp = {
   slug: string;
@@ -18,6 +18,24 @@ export type AiApp = {
 export const categories = ["Все", "Изображения", "Видео", "Бизнес", "Аудио", "Инструменты"] as const;
 
 export const apps: AiApp[] = [
+  {
+    slug: "product-card",
+    title: "Карточка товара",
+    subtitle: "Готовый макет из фото и названия",
+    description: "Добавь фото, название и, по желанию, одно преимущество товара. Выбери оформление и скачай вертикальную карточку в PNG.",
+    category: "Бизнес", symbol: "▣", visualClass: "tile-orange", mode: "product-card",
+    demoStartingPrice: null, featured: true,
+    examples: ["Термокружка · 450 мл · минимализм", "Подарочный набор · ручная работа · яркий акцент"],
+  },
+  {
+    slug: "ai-b-roll",
+    title: "AI B-roll",
+    subtitle: "Пятисекундный клип из одной фразы",
+    description: "Коротко опиши, что происходит в кадре, и выбери настроение. Настройки света, движения камеры и композиции добавятся автоматически.",
+    category: "Видео", symbol: "▹", visualClass: "tile-violet", mode: "scene",
+    demoStartingPrice: null, featured: true,
+    examples: ["Пар поднимается над чашкой кофе", "Огни ночного города отражаются в лужах"],
+  },
   {
     slug: "text-to-image",
     title: "Генератор изображений",

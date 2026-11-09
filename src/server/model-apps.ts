@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { HttpError } from "./errors";
+import { bRollMoods, type BRollMood } from "../lib/b-roll";
 
 // Explicit allow-list: never accept a raw model ID or arbitrary provider URL from clients.
 // M1 initially enables six scenarios backed by two verified WaveSpeed model families.
@@ -8,6 +9,12 @@ const imageRef = z.string().uuid();
 const size = z.enum(["1024*1024","1536*1024","1024*1536"]).default("1024*1024");
 const motionDuration = z.union([z.literal(5),z.literal(8)]).default(5);
 const videoResolution = z.enum(["480p","720p"]).default("480p");
+const orientation = z.enum(["landscape","portrait"]).default("landscape");
+const bRollDirections: Record<BRollMood, string> = {
+  cinematic: "Slow dolly movement, shallow depth of field, directional lighting and cinematic contrast.",
+  realistic: "Subtle handheld motion, natural light and realistic texture.",
+  soft: "Gentle camera drift, diffused light and a muted color palette.",
+};
 
 type ModelSpec = {
   modelId: string;
@@ -16,6 +23,12 @@ type ModelSpec = {
   build: (input: Record<string,unknown>, imageUrl?: string)=>Record<string,unknown>;
 };
 const zImage = "wavespeed-ai/z-image/turbo";
+const textToVideo = "wavespeed-ai/wan-2.2/t2v-480p";
+
+function videoSize(orientation: unknown) {
+  return orientation === "portrait" ? "480*832" : "832*480";
+}
+
 export const modelSpecs: Record<string, ModelSpec> = {
   "text-to-image": {
     modelId:zImage,mode:"text",inputSchema:z.object({prompt,size}),
@@ -53,9 +66,26 @@ export const modelSpecs: Record<string, ModelSpec> = {
     build:(i,url)=>({prompt:i.prompt,image:url,resolution:i.resolution,duration:i.duration})
   },
   "text-to-video": {
-    modelId:"wavespeed-ai/wan-2.2/t2v-480p",mode:"text",
-    inputSchema:z.object({prompt,duration:motionDuration,orientation:z.enum(["landscape","portrait"]).default("landscape")}),
-    build:i=>({prompt:i.prompt,duration:i.duration,size:i.orientation==="portrait"?"480*832":"832*480"})
+    modelId:textToVideo,mode:"text",
+    inputSchema:z.object({prompt,duration:motionDuration,orientation}),
+    build:i=>({prompt:i.prompt,duration:i.duration,size:videoSize(i.orientation)})
+  },
+  "ai-b-roll": {
+    modelId:textToVideo,mode:"text",
+    inputSchema:z.object({
+      prompt:z.string().trim().min(3).max(240),
+      mood:z.enum(bRollMoods).default("cinematic"),
+      orientation,
+    }),
+    build:i=>({
+      prompt:[
+        "Create a single five-second stock footage shot with clean composition. No cuts, titles or overlays.",
+        bRollDirections[i.mood as BRollMood],
+        "Scene: "+i.prompt,
+      ].join(" "),
+      duration:5,
+      size:videoSize(i.orientation),
+    })
   },
   "ai-voiceover": {
     modelId:"minimax/speech-2.6-hd",mode:"text",

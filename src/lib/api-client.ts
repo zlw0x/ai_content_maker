@@ -22,7 +22,9 @@ export function rub(kopecks: number): string {
   return new Intl.NumberFormat("ru-RU",{style:"currency",currency:"RUB",maximumFractionDigits:2}).format(kopecks/100);
 }
 export function safeNext(raw: string|null, fallback="/dashboard"):string {
-  return raw && raw.startsWith("/") && !raw.startsWith("//") && !raw.includes("\\") ? raw : fallback;
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) return fallback;
+  // Browsers strip some control characters before interpreting the URL.
+  return /[\u0000-\u001f\u007f]/.test(raw) ? fallback : raw;
 }
 export type AppJob = {
   id:string; appSlug:string; status:string; priceKopecks:number;
