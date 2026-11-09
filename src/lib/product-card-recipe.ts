@@ -3,7 +3,7 @@ import { cardHeight, cardWidth, makeProductCard } from "./render-product-card";
 
 export const productCardRecipe = {
   key: "product-card",
-  version: 1,
+  version: 2,
   output: { filename: "product-card.png", width: cardWidth, height: cardHeight },
 } as const;
 
@@ -11,6 +11,8 @@ type ProductCardInput = {
   source: { file: File } | { exampleId: string } | null;
   title: string;
   benefit: string;
+  price?: string;
+  frame?: boolean;
   styleId: typeof productCardStyles[number]["id"];
 };
 
@@ -42,10 +44,13 @@ export function createProductCardRecipe(render = makeProductCard) {
     const style = productCardStyles.find(option => option.id === input.styleId);
     if (!style) throw new ProductCardInputError("Выберите оформление карточки.");
     const benefit = input.benefit.trim().replace(/\s+/g, " ");
-    const key = JSON.stringify([productCardRecipe.key, productCardRecipe.version, title, benefit, style.id]);
+    const price = input.price?.trim().replace(/\s+/g, " ") ?? "";
+    if (price.length > 24) throw new ProductCardInputError("Цена на макете должна быть не длиннее 24 символов.");
+    const frame = input.frame === true;
+    const key = JSON.stringify([productCardRecipe.key, productCardRecipe.version, title, benefit, style.id, price, frame]);
     if (lastRun?.source === photo && lastRun.key === key) return lastRun.png;
 
-    const png = loadPhoto(photo).then(blob => render(blob, title, benefit, style));
+    const png = loadPhoto(photo).then(blob => render(blob, title, benefit, style, { price, frame }));
     lastRun = { source: photo, key, png };
     try {
       return await png;

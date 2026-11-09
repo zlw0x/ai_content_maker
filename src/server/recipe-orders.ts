@@ -15,6 +15,7 @@ export const recipeLayoutSchema = z.object({
   price: z.string().trim().max(24).default(""),
   color: z.string().regex(/^#[a-fA-F0-9]{6}$/).toLowerCase().default("#74529f"),
   alignment: z.enum(["left", "center", "right"]).default("left"),
+  frame: z.literal(true).optional(),
 }).strict();
 
 const quoteSchema = z.object({

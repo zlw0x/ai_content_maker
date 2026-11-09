@@ -134,6 +134,7 @@ async function composeArt(prepared: Buffer, art: Art, layout: RecipeLayout): Pro
       <circle cx="${center}" cy="${photo.top + photo.height * 0.43}" r="${Math.min(photo.width, photo.height) * 0.42}" fill="${color}" opacity="0.16"/>
       <ellipse cx="${center}" cy="${photo.top + photo.height * 0.84}" rx="${photo.width * 0.33}" ry="${photo.height * 0.065}" fill="${color}" opacity="0.21"/>
     </g>
+    ${layout.frame === true ? `<rect ${stage} fill="none" stroke="${color}" stroke-width="6"/>` : ""}
     <rect x="${alignedLeft(copy, accentWidth, alignment)}" y="${copy.top}" width="${accentWidth}" height="${Math.max(5, Math.round(copy.height * 0.018))}" rx="3" fill="${color}"/>
     ${price ? `<rect x="${badgeLeft}" y="${priceBox.top}" width="${badgeWidth}" height="${badgeHeight}" rx="${Math.round(badgeHeight / 2)}" fill="${color}"/>` : ""}
   </svg>`);

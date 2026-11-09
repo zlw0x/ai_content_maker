@@ -91,6 +91,13 @@ function LayoutFields({ layout, onChange }: { layout: RecipeLayout; onChange: (l
         onChange={event => onChange({ ...layout, color: event.target.value })} />
     </div>
     <div className={styles.wide}>
+      <label htmlFor="recipe-frame">Рамка вокруг фото</label>
+      <select id="recipe-frame" value={layout.frame ? "line" : "none"}
+        onChange={event => onChange({ ...layout, frame: event.target.value === "line" ? true : undefined })}>
+        <option value="none">Без рамки</option><option value="line">Тонкая рамка</option>
+      </select>
+    </div>
+    <div className={styles.wide}>
       <label htmlFor="recipe-alignment">Выравнивание текста</label>
       <select id="recipe-alignment" value={layout.alignment}
         onChange={event => onChange({ ...layout, alignment: event.target.value as RecipeLayout["alignment"] })}>
@@ -214,7 +221,7 @@ function RecipeWizard({ initialRecipe, settings, handoff, example, funnelEnabled
     const source = takeRecipeHandoff(handoff);
     if (!source) { setHandoffMissing(true); return; }
     setFile(source.file);
-    setLayout({ ...initialLayout, title: source.title, benefit: source.benefit });
+    setLayout({ ...initialLayout, title: source.title, benefit: source.benefit, price: source.price, frame: source.frame });
   }, [handoff]);
 
   useEffect(() => {

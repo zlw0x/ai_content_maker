@@ -38,6 +38,9 @@ test("photo operations preserve transparency and composition recipes render each
     assert.deepEqual([meta.width, meta.height], [1200, 1600]);
   }
   assert.notDeepEqual(studio[0].body, studio[1].body);
+  const framed = await renderRecipe("studio-card", source, { ...layout, frame: true });
+  assert.deepEqual(await sharp(framed[0].body).metadata().then(({ width, height }) => [width, height]), [1200, 1600]);
+  assert.notDeepEqual(framed[0].body, studio[0].body);
 
   const kit = await renderRecipe("ad-kit", source, layout);
   const banner = await renderRecipe("ad-banner", source, layout);

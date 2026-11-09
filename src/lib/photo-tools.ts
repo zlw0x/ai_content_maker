@@ -83,11 +83,10 @@ function checkOutputSize({ width, height }: Size) {
   }
 }
 
-export async function processPhoto(file: File, options: PhotoOptions) {
+export async function decodeBoundedPhoto(file: Blob) {
   if (file.size === 0 || file.size > maxInputBytes) {
     throw new PhotoToolsError("Выберите файл размером до 10 МБ.");
   }
-  if (options.operation !== "original") checkOutputSize(options);
   // Read dimensions before decoding to bound memory even for a small compressed file.
   const header = readHeader(await file.arrayBuffer());
   if (!header) throw new PhotoToolsError("Выберите корректное изображение в формате PNG, JPEG или WebP.");
@@ -96,10 +95,21 @@ export async function processPhoto(file: File, options: PhotoOptions) {
   const image = await createImageBitmap(file.slice(0, file.size, header.format)).catch(() => {
     throw new PhotoToolsError("Не удалось открыть изображение. Выберите другой файл.");
   });
+  try {
+    checkInputSize(image);
+    return image;
+  } catch (error) {
+    image.close();
+    throw error;
+  }
+}
+
+export async function processPhoto(file: File, options: PhotoOptions) {
+  if (options.operation !== "original") checkOutputSize(options);
+  const image = await decodeBoundedPhoto(file);
   const canvas = document.createElement("canvas");
   try {
     try {
-      checkInputSize(image);
       const fitScale = options.operation === "fit" ? Math.min(options.width / image.width, options.height / image.height) : 1;
       const width = options.operation === "crop" ? options.width : Math.max(1, Math.round(image.width * fitScale));
       const height = options.operation === "crop" ? options.height : Math.max(1, Math.round(image.height * fitScale));

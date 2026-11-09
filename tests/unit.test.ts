@@ -66,6 +66,12 @@ test("Local product recipe reuses the same run and renders changed uploads or st
   const replacement=new File(["different"],file.name,{type:file.type});
   assert.notEqual(await run({...input,styleId:"bright",source:{file:replacement}}),restyled);
   assert.equal(calls.length,3);
+  const priced=await run({...input,price:"  1  290 ₽ "});
+  assert.equal(await run({...input,price:"1 290 ₽"}),priced);
+  assert.notEqual(await run({...input,price:"1 290 ₽",frame:true}),priced);
+  assert.deepEqual(calls[3][4],{price:"1 290 ₽",frame:false});
+  assert.deepEqual(calls[4][4],{price:"1 290 ₽",frame:true});
+  assert.equal(calls.length,5);
 });
 
 test("Local product recipe validates before rendering and allows retry after a failed run",async()=>{

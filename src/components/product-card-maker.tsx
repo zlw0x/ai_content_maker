@@ -6,6 +6,7 @@ import { getProductCardExample, productCardStyles as styles } from "@/lib/produc
 import { createProductCardRecipe, ProductCardInputError, productCardRecipe } from "@/lib/product-card-recipe";
 import { startRecipeHandoff } from "@/lib/recipe-handoff";
 import { trackRecipeFunnel } from "@/lib/recipe-funnel-client";
+import { PhotoToolsError } from "@/lib/photo-tools";
 
 export function ProductCardMaker({ exampleId, funnelEnabled }: { exampleId?: string; funnelEnabled: boolean }) {
   const router = useRouter();
@@ -13,6 +14,8 @@ export function ProductCardMaker({ exampleId, funnelEnabled }: { exampleId?: str
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState(example?.title ?? "");
   const [benefit, setBenefit] = useState(example?.benefit ?? "");
+  const [price, setPrice] = useState("");
+  const [frame, setFrame] = useState(false);
   const [styleIndex, setStyleIndex] = useState(example?.styleIndex ?? 0);
   const [runRecipe] = useState(createProductCardRecipe);
   const [result, setResult] = useState<Blob | null>(null);
@@ -42,10 +45,12 @@ export function ProductCardMaker({ exampleId, funnelEnabled }: { exampleId?: str
         source: file ? { file } : example ? { exampleId: example.id } : null,
         title,
         benefit,
+        price,
+        frame,
         styleId: styles[styleIndex].id,
       }));
     } catch (error) {
-      setError(error instanceof ProductCardInputError ? error.message :
+      setError(error instanceof ProductCardInputError || error instanceof PhotoToolsError ? error.message :
         "Не удалось собрать карточку. Попробуйте открыть другое фото.");
     } finally {
       setBusy(false);
@@ -65,7 +70,7 @@ export function ProductCardMaker({ exampleId, funnelEnabled }: { exampleId?: str
         source = new File([image], "example.png", { type: "image/png" });
       }
       if (!source) throw new Error("No source");
-      const token = startRecipeHandoff({ file: source, title: title.trim(), benefit: benefit.trim() });
+      const token = startRecipeHandoff({ file: source, title: title.trim(), benefit: benefit.trim(), price: price.trim(), frame: frame || undefined });
       startNavigation(() => router.push("/apps/recipes?" + new URLSearchParams({ recipe: "studio-card", handoff: token })));
     } catch {
       setError("Не удалось открыть студию с этим фото. Попробуйте ещё раз.");
@@ -99,9 +104,20 @@ export function ProductCardMaker({ exampleId, funnelEnabled }: { exampleId?: str
               onChange={e => setBenefit(e.target.value)} />
           </div>
           <div className="form-field">
+            <label htmlFor="product-price">Цена на макете (необязательно)</label>
+            <input id="product-price" value={price} maxLength={24} placeholder="1 290 ₽" onChange={e => setPrice(e.target.value)} />
+          </div>
+          <div className="form-field">
             <label htmlFor="product-style">Оформление</label>
             <select id="product-style" value={styleIndex} onChange={e => setStyleIndex(Number(e.target.value))}>
               {styles.map((style, index) => <option key={style.label} value={index}>{style.label}</option>)}
+            </select>
+          </div>
+          <div className="form-field">
+            <label htmlFor="product-frame">Рамка вокруг фото</label>
+            <select id="product-frame" value={frame ? "line" : "none"} onChange={e => setFrame(e.target.value === "line")}>
+              <option value="none">Без рамки</option>
+              <option value="line">Тонкая рамка</option>
             </select>
           </div>
           <button type="submit" className="button button-primary generate-button">

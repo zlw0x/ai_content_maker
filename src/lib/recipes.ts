@@ -9,7 +9,7 @@ export const recipeCatalog = {
 } as const;
 
 export type RecipeKey = keyof typeof recipeCatalog;
-export type RecipeLayout = { title: string; benefit: string; price: string; color: string; alignment: "left" | "center" | "right" };
+export type RecipeLayout = { title: string; benefit: string; price: string; color: string; alignment: "left" | "center" | "right"; frame?: true };
 
 export function isRecipeKey(key: string): key is RecipeKey {
   return Object.hasOwn(recipeCatalog, key);

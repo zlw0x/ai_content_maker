@@ -1,4 +1,4 @@
-type RecipeHandoff = { file: File; title: string; benefit: string };
+type RecipeHandoff = { file: File; title: string; benefit: string; price: string; frame?: true };
 
 const ttl = 5 * 60 * 1000;
 let pending: { token: string; expiresAt: number; data: RecipeHandoff } | undefined;
