@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { maxOutputSide, photoFormats, PhotoToolsError, processPhoto, type PhotoFormat, type PhotoOperation } from "@/lib/photo-tools";
+import { trackRecipeFunnel } from "@/lib/recipe-funnel-client";
 
 const presets = [
   { label: "Квадрат · 1:1", width: "1080", height: "1080" },
@@ -11,7 +12,7 @@ const presets = [
 
 type Result = Awaited<ReturnType<typeof processPhoto>>;
 
-export function PhotoTools() {
+export function PhotoTools({ funnelEnabled }: { funnelEnabled: boolean }) {
   const [file, setFile] = useState<File | null>(null);
   const [operation, setOperation] = useState<PhotoOperation>("fit");
   const [width, setWidth] = useState(presets[1].width);
@@ -43,6 +44,7 @@ export function PhotoTools() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy || !file) return;
+    trackRecipeFunnel(funnelEnabled, "start");
     clearResult();
     setBusy(true);
     try {
@@ -116,7 +118,7 @@ export function PhotoTools() {
       {result && preview?.result === result && <div className="product-card-result">
         <img src={preview.url} alt="Обработанное фото" width={result.width} height={result.height} />
         <p role="status" className="small-note">{result.width} × {result.height} · {label}</p>
-        <a className="button button-secondary" href={preview.url} download={`photo.${extension}`}>Скачать {label}</a>
+        <a className="button button-secondary" href={preview.url} download={`photo.${extension}`} onClick={() => trackRecipeFunnel(funnelEnabled, "free_export")}>Скачать {label}</a>
       </div>}
     </div>
   );

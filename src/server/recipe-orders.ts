@@ -5,6 +5,7 @@ import { config } from "./config";
 import { db, one, transaction } from "./db";
 import { assert } from "./errors";
 import { sha256 } from "./security";
+import { recipeFunnelDigest } from "./recipe-funnel";
 
 const uuid = z.string().uuid();
 export const recipeCostCeilingUsd = "0.01";
@@ -49,7 +50,7 @@ export async function recipeAvailability(userId: string) {
   };
 }
 
-export async function createRecipeQuote(userId: string, raw: unknown) {
+export async function createRecipeQuote(userId: string, raw: unknown, visitId: string | null = null) {
   requireRecipeOrders();
   const parsed = quoteSchema.safeParse(raw);
   assert(parsed.success, 422, "RECIPE_INPUT", "Проверьте рецепт, исходник и оформление");
@@ -67,9 +68,9 @@ export async function createRecipeQuote(userId: string, raw: unknown) {
     assert(Number(limits.rows[0].count) < 30, 429, "RECIPE_QUOTE_LIMIT", "Лимит расчётов на этот час исчерпан");
     await lockInput(client, userId, request.assetId);
     const { rows: [quote] } = await client.query<QuoteRow>(`INSERT INTO recipe_quotes
-      (user_id, asset_id, recipe_key, recipe_version, layout, price_kopecks, access)
-      VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, expires_at`,
-      [userId, request.assetId, request.recipeKey, recipeVersion, request.layout, price, request.access]);
+      (user_id, asset_id, recipe_key, recipe_version, layout, price_kopecks, access, funnel_digest)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, expires_at`,
+      [userId, request.assetId, request.recipeKey, recipeVersion, request.layout, price, request.access, recipeFunnelDigest(visitId)]);
     return { id: quote.id, recipeKey: request.recipeKey, version: recipeVersion, priceKopecks: price, currency: "RUB", expiresAt: quote.expires_at };
   });
 }

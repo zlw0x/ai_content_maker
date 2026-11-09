@@ -15,6 +15,7 @@ import {createRecipeOrder,createRecipeQuote,getRecipeOrder,recipeAvailability,re
 import {reviseRecipeOrder} from "@/server/recipe-worker";
 import {applyMockRecipePayment,getRecipePayment,getRecipePaymentMode,refreshRecipePayment,requestRecipeRefund,startRecipePayment} from "@/server/recipe-payments";
 import {confirmEmailVerification,startEmailVerification} from "@/server/email-verification";
+import {parseRecipeFunnelEvent,recipeFunnelEnabled,recordRecipeFunnelEvent} from "@/server/recipe-funnel";
 
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
@@ -62,6 +63,14 @@ async function getHandler(request:NextRequest,parts:string[]) {
 async function postHandler(request:NextRequest,parts:string[]){
   sameOrigin(request);
   const path=parts.join("/");
+  if(path==="recipe-funnel"){
+    if(!recipeFunnelEnabled())return new NextResponse(null,{status:204});
+    assert(request.headers.get("origin")===config().APP_ORIGIN,403,"BAD_ORIGIN","Запрос с другого сайта запрещён");
+    const input=parseRecipeFunnelEvent(await parseJson(request));
+    if(input.stage!=="example")await currentUser();
+    await recordRecipeFunnelEvent(input);
+    return new NextResponse(null,{status:204});
+  }
   if(path==="auth/register"){
     const key="signup:"+(request.headers.get("x-real-ip")??"unknown");
     const {rateLimit,recordFailure}=await import("@/server/security");
@@ -78,7 +87,7 @@ async function postHandler(request:NextRequest,parts:string[]){
   const user=await currentUser();
   if(path==="auth/verify-email/start")return json(await startEmailVerification(user.id));
   if(path==="auth/verify-email/confirm")return json(await confirmEmailVerification(user.id,await parseJson(request)));
-  if(path==="recipe-quotes")return json(await createRecipeQuote(user.id,await parseJson(request)),201);
+  if(path==="recipe-quotes")return json(await createRecipeQuote(user.id,await parseJson(request),request.headers.get("x-recipe-funnel-visit")),201);
   if(path==="recipe-orders")return json(await createRecipeOrder(user.id,await parseJson(request),idempotency(request),request.headers.get("x-real-ip")??"unknown"),201);
   if(parts[0]==="recipe-orders"&&parts.length===3){
     const orderId=parts[1];

@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import { getProductCardExample, productCardStyles as styles } from "@/lib/product-card-examples";
 import { createProductCardRecipe, ProductCardInputError, productCardRecipe } from "@/lib/product-card-recipe";
 import { startRecipeHandoff } from "@/lib/recipe-handoff";
+import { trackRecipeFunnel } from "@/lib/recipe-funnel-client";
 
-export function ProductCardMaker({ exampleId }: { exampleId?: string }) {
+export function ProductCardMaker({ exampleId, funnelEnabled }: { exampleId?: string; funnelEnabled: boolean }) {
   const router = useRouter();
   const example = getProductCardExample(exampleId);
   const [file, setFile] = useState<File | null>(null);
@@ -33,6 +34,7 @@ export function ProductCardMaker({ exampleId }: { exampleId?: string }) {
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy || openingStudio) return;
+    trackRecipeFunnel(funnelEnabled, "start");
     setError("");
     setBusy(true);
     try {
@@ -112,7 +114,7 @@ export function ProductCardMaker({ exampleId }: { exampleId?: string }) {
       {result && preview?.blob === result && <div className="product-card-result">
         {/* The preview is a local blob URL. */}
         <img src={preview.url} alt="Готовая карточка товара" width={width} height={height} />
-        <a className="button button-secondary" href={preview.url} download={filename}>Скачать PNG</a>
+        <a className="button button-secondary" href={preview.url} download={filename} onClick={() => trackRecipeFunnel(funnelEnabled, "free_export")}>Скачать PNG</a>
         <button className="button button-secondary" type="button" onClick={openStudio} disabled={busy || openingStudio}>
           {openingStudio ? "Открываем студию…" : "Продолжить в студии с этим фото"}
         </button>

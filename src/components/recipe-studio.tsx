@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError, rub } from "@/lib/api-client";
 import { PhotoToolsError, processPhoto } from "@/lib/photo-tools";
 import { takeRecipeHandoff } from "@/lib/recipe-handoff";
+import { recipeFunnelVisit, trackRecipeFunnel } from "@/lib/recipe-funnel-client";
 import type { getRecipeExample } from "@/lib/recipe-showcase";
 import { isRecipeKey, recipeCatalog, type RecipeKey, type RecipeLayout } from "@/lib/recipes";
 import styles from "./recipe-studio.module.css";
@@ -154,7 +155,7 @@ function VerifyEmail({ onVerified }: { onVerified: () => void }) {
 
 type ShowcaseExample = ReturnType<typeof getRecipeExample>;
 
-export function RecipeStudio({ initialRecipe, orderId, handoff, example }: { initialRecipe: RecipeKey; orderId?: string; handoff?: string; example?: ShowcaseExample }) {
+export function RecipeStudio({ initialRecipe, orderId, handoff, example, funnelEnabled }: { initialRecipe: RecipeKey; orderId?: string; handoff?: string; example?: ShowcaseExample; funnelEnabled: boolean }) {
   const [settings, setSettings] = useState<Availability | null>(null);
   const [settingsError, setSettingsError] = useState("");
   const [reload, setReload] = useState(0);
@@ -182,12 +183,12 @@ export function RecipeStudio({ initialRecipe, orderId, handoff, example }: { ini
       <Link className="button button-secondary" href="/apps/photo-tools">Подготовить фото</Link></div>
   </section>;
 
-  return <RecipeWizard key={handoff} initialRecipe={initialRecipe} settings={settings} handoff={handoff} example={example}
+  return <RecipeWizard key={handoff} initialRecipe={initialRecipe} settings={settings} handoff={handoff} example={example} funnelEnabled={funnelEnabled}
     onVerified={() => setSettings(current => current && { ...current, verified: true })} />;
 }
 
-function RecipeWizard({ initialRecipe, settings, handoff, example, onVerified }: {
-  initialRecipe: RecipeKey; settings: Availability; handoff?: string; example?: ShowcaseExample; onVerified: () => void;
+function RecipeWizard({ initialRecipe, settings, handoff, example, funnelEnabled, onVerified }: {
+  initialRecipe: RecipeKey; settings: Availability; handoff?: string; example?: ShowcaseExample; funnelEnabled: boolean; onVerified: () => void;
 }) {
   const [recipeKey, setRecipeKey] = useState(initialRecipe);
   const [accessChoice, setAccessChoice] = useState<Access | null>(null);
@@ -258,6 +259,7 @@ function RecipeWizard({ initialRecipe, settings, handoff, example, onVerified }:
   async function requestQuote(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!file || !ready || !accessAvailable || busy) return;
+    trackRecipeFunnel(funnelEnabled, "start");
     invalidate();
     setBusy(true);
     try {
@@ -269,7 +271,8 @@ function RecipeWizard({ initialRecipe, settings, handoff, example, onVerified }:
         assetId = asset.id;
         uploaded.current = { file, id: assetId };
       }
-      const response = await post<Quote>("/recipe-quotes", { recipeKey, assetId, access, layout });
+      const visitId = recipeFunnelVisit(funnelEnabled);
+      const response = await post<Quote>("/recipe-quotes", { recipeKey, assetId, access, layout }, visitId ? { "X-Recipe-Funnel-Visit": visitId } : undefined);
       setQuote({ ...response, requestKey: crypto.randomUUID(), expired: false, attempted: false });
     } catch (error) {
       if (error instanceof ApiError && error.code === "FILE_NOT_FOUND") uploaded.current = null;

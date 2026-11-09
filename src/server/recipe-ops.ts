@@ -3,6 +3,7 @@ import { db, transaction } from "./db";
 import { settleTrial } from "./recipe-orders";
 import { config } from "./config";
 import { getPrediction } from "./wavespeed";
+import { recipeFunnelReport } from "./recipe-funnel";
 
 export async function recipeOpsReport() {
   const client = await db().connect();
@@ -31,8 +32,9 @@ export async function recipeOpsReport() {
       coalesce((SELECT used_usd FROM recipe_trial_days WHERE day=(now() AT TIME ZONE 'UTC')::date),0)::text AS "budgetUsedUsd",
       (SELECT count(*)::int FROM recipe_trial_grants g JOIN recipe_orders o ON o.id=g.order_id
         WHERE g.state='reserved' AND o.status IN ('unknown','failed')) AS "unreconciledGrants"`);
+    const funnel30d = await recipeFunnelReport(client);
     await client.query("COMMIT");
-    return { activity, queue, payments, trial };
+    return { activity, queue, payments, trial, funnel30d };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;

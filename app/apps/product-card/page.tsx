@@ -3,10 +3,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AppDetails } from "@/components/app-details";
 import { ProductCardMaker } from "@/components/product-card-maker";
+import { RecipeExampleView } from "@/components/recipe-example-view";
 import { getAppBySlug } from "@/lib/catalog";
 import { getProductCardExample } from "@/lib/product-card-examples";
 import { HttpError } from "@/server/errors";
 import { currentUser } from "@/server/security";
+import { recipeFunnelEnabled } from "@/server/recipe-funnel";
 
 const app = getAppBySlug("product-card");
 
@@ -20,6 +22,8 @@ export default async function ProductCardPage({
   if (!app) notFound();
   const { example } = await searchParams;
   const exampleId = typeof example === "string" ? getProductCardExample(example)?.id : undefined;
+  const funnelEnabled = recipeFunnelEnabled();
+  const exampleView = exampleId && funnelEnabled ? <RecipeExampleView enabled /> : null;
 
   try {
     await currentUser();
@@ -29,6 +33,7 @@ export default async function ProductCardPage({
     const loginUrl = "/account?" + new URLSearchParams({ next });
     return (
       <AppDetails app={app}>
+        {exampleView}
         <div className="generation-panel">
           <div className="generation-heading"><h2>Бесплатная карточка товара</h2></div>
           <p className="muted">Войдите или создайте аккаунт, чтобы собрать и скачать карточку.</p>
@@ -39,5 +44,5 @@ export default async function ProductCardPage({
     );
   }
 
-  return <AppDetails app={app}><ProductCardMaker key={exampleId} exampleId={exampleId} /></AppDetails>;
+  return <AppDetails app={app}>{exampleView}<ProductCardMaker key={exampleId} exampleId={exampleId} funnelEnabled={funnelEnabled} /></AppDetails>;
 }

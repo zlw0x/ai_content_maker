@@ -23,6 +23,7 @@ const schema = z.object({
   MOCK_COST_USD: z.coerce.number().positive().default(0.005),
   DEMO_CREDIT_ENABLED: z.enum(["true","false"]).default("false"),
   RECIPE_ORDERS_ENABLED: z.enum(["true", "false"]).default("false"),
+  RECIPE_FUNNEL_ENABLED: z.enum(["true", "false"]).default("false"),
   RECIPE_TRIAL_ENABLED: z.enum(["true", "false"]).default("false"),
   RECIPE_TRIAL_DAILY_BUDGET_USD: z.coerce.number().nonnegative().max(1000).default(5),
   RECIPE_EMAIL_DELIVERY: z.enum(["disabled", "mock", "webhook"]).default("disabled"),

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { PhotoTools } from "@/components/photo-tools";
 import { HttpError } from "@/server/errors";
 import { currentUser } from "@/server/security";
+import { recipeFunnelEnabled } from "@/server/recipe-funnel";
 
 export const metadata: Metadata = {
   title: "Подготовка фото",
@@ -38,7 +39,7 @@ export default async function PhotoToolsPage() {
           </div>
         </section>
         <aside className="detail-aside" aria-label="Настройки фото">
-          {signedIn ? <PhotoTools /> : <div className="generation-panel">
+          {signedIn ? <PhotoTools funnelEnabled={recipeFunnelEnabled()} /> : <div className="generation-panel">
             <div className="generation-heading"><h2>Открыть инструмент</h2></div>
             <p className="muted">Войдите или создайте аккаунт, чтобы подготовить и скачать фото.</p>
             <Link className="button button-primary generate-button" href={loginUrl}>Войти или зарегистрироваться</Link>

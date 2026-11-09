@@ -20,6 +20,7 @@
     "test:recipes": "tsx tests/recipe-orders.smoke.ts",
     "test:recipe-payments": "tsx --test tests/recipe-payments.contract.test.ts",
     "test:recipe-ops": "tsx --test tests/recipe-ops.contract.test.ts",
+    "test:recipe-funnel": "tsx --test tests/recipe-funnel.contract.test.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {
