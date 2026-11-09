@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { z } from "zod";
 import { config } from "./config";
-import { one, transaction } from "./db";
+import { db, one, transaction } from "./db";
 import { assert, HttpError } from "./errors";
 
 type PaymentMode = "mock" | "yookassa-test";
@@ -316,6 +316,69 @@ export async function reconcileRecipeRefund(orderId: string, externalId: string)
     WHERE order_id=$1 AND mode='yookassa-test' AND status='succeeded' AND refund_id IS NOT NULL`, [orderId]);
   assert(row, 404, "RECIPE_REFUND_NOT_FOUND", "Попытка тестового возврата по заказу не найдена");
   return readProviderRefund(externalId, row.refund_id);
+}
+
+type SandboxEvidence = {
+  order_id: string; payment_id: string; refund_id: string | null;
+  external_id: string; refund_external_id: string | null;
+  payment_status: PaymentStatus; refund_status: PaymentStatus | null; order_status: string;
+  amount_kopecks: number; files: number; active_pngs: number;
+  terminal_events: string[];
+};
+
+export async function verifyRecipeSandbox(delivered: string, canceled: string, refunded: string) {
+  const cases = [["delivered", delivered], ["canceled", canceled], ["refunded", refunded]] as const;
+  const ids = cases.map(([, id]) => {
+    validateOrderId(id);
+    return id.toLowerCase();
+  });
+  assert(new Set(ids).size === ids.length, 422, "RECIPE_SANDBOX_CASES", "Для проверки нужны три разных заказа");
+  requireMode("yookassa-test");
+  const { rows } = await db().query<SandboxEvidence>(`SELECT
+    o.id AS order_id, p.id AS payment_id, p.refund_id, p.external_id, p.refund_external_id,
+    p.status AS payment_status, p.refund_status, o.status AS order_status, p.amount_kopecks,
+    (SELECT count(*)::int FROM recipe_outputs r WHERE r.order_id=o.id) AS files,
+    (SELECT count(*)::int FROM recipe_outputs r JOIN media_assets a ON a.id=r.asset_id AND a.user_id=o.user_id
+      WHERE r.order_id=o.id AND r.revision=o.revision AND a.kind='output' AND a.media_type='image/png'
+      AND a.byte_size>0 AND a.deleted_at IS NULL AND a.purged_at IS NULL AND a.expires_at>now()) AS active_pngs,
+    ARRAY(SELECT kind || ':' || status FROM recipe_payment_events e
+      WHERE e.payment_id=p.id AND e.status IN ('succeeded','canceled') ORDER BY kind,status) AS terminal_events
+    FROM recipe_orders o JOIN recipe_quotes q ON q.id=o.quote_id JOIN recipe_payments p ON p.order_id=o.id
+    WHERE o.id=ANY($1::uuid[]) AND q.recipe_key='studio-card' AND q.access='premium'
+    AND o.provider_mode='mock' AND o.provider_prediction_id IS NULL AND o.provider_cost_usd IS NULL
+    AND p.mode='yookassa-test' AND p.external_id IS NOT NULL AND p.amount_kopecks=o.price_kopecks
+    AND p.amount_kopecks=q.price_kopecks`, [ids]);
+
+  const results = [];
+  for (const [scenario, id] of cases) {
+    const row = rows.find(item => item.order_id === id.toLowerCase());
+    const status = scenario === "canceled" ? "canceled" : "succeeded";
+    const orderStatus = scenario === "delivered" ? "completed" : scenario === "canceled" ? "awaiting_payment" : "failed";
+    const files = scenario === "delivered" ? 3 : 0;
+    const events = ["payment:" + status, ...(scenario === "refunded" ? ["refund:succeeded"] : [])];
+    assert(row && row.order_status === orderStatus && row.payment_status === status && row.files === files &&
+      row.active_pngs === files && row.terminal_events.join(",") === events.join(",") &&
+      row.refund_status === (scenario === "refunded" ? "succeeded" : null),
+    409, "RECIPE_SANDBOX_LOCAL_MISMATCH", `Сценарий ${scenario}: состояние в базе не прошло сверку`);
+    assert(providerId.safeParse(row.external_id).success, 409, "INVALID_RECIPE_PAYMENT_ID", "Неверный сохранённый ID платежа");
+    const payment = paymentObject.safeParse(await testRequest("/payments/" + row.external_id));
+    assert(payment.success && payment.data.id === row.external_id && payment.data.status === status &&
+      payment.data.paid === (status === "succeeded") && payment.data.metadata.recipe_order_id === row.order_id &&
+      payment.data.metadata.recipe_payment_id === row.payment_id && amountToKopecks(payment.data.amount) === row.amount_kopecks,
+    409, "RECIPE_SANDBOX_PROVIDER_MISMATCH", `Сценарий ${scenario}: платёж ЮKassa не совпал с записью`);
+    if (scenario === "refunded") {
+      assert(row.refund_id && row.refund_external_id && providerId.safeParse(row.refund_external_id).success,
+        409, "INVALID_RECIPE_REFUND_ID", "Неверный сохранённый ID возврата");
+      const refund = refundObject.safeParse(await testRequest("/refunds/" + row.refund_external_id));
+      assert(refund.success && refund.data.id === row.refund_external_id && refund.data.status === "succeeded" &&
+        refund.data.payment_id === row.external_id && refund.data.metadata.recipe_payment_id === row.payment_id &&
+        refund.data.metadata.recipe_refund_id === row.refund_id && amountToKopecks(refund.data.amount) === row.amount_kopecks,
+      409, "RECIPE_SANDBOX_PROVIDER_MISMATCH", "Возврат ЮKassa не совпал с записью");
+    }
+    results.push({ scenario, orderStatus, paymentStatus: status, refundStatus: row.refund_status, amountKopecks: row.amount_kopecks,
+      currency: "RUB", activePngRecords: row.active_pngs });
+  }
+  return results;
 }
 
 export async function requestRecipeRefund(userId: string, orderId: string) {

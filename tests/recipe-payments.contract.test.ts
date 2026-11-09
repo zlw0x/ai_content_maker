@@ -12,6 +12,7 @@ import {
   reconcileRecipeRefund,
   requestRecipeRefund,
   startRecipePayment,
+  verifyRecipeSandbox,
 } from "../src/server/recipe-payments";
 
 const databaseUrl = process.env.RECIPE_PAYMENT_TEST_DATABASE_URL;
@@ -32,7 +33,7 @@ test("Recipe checkout contracts against an isolated, migrated PostgreSQL databas
   const newOrder = async (mode = "mock") => {
     const quote = await one<{ id: string }>(`INSERT INTO recipe_quotes
       (user_id,asset_id,recipe_key,recipe_version,layout,price_kopecks,access)
-      VALUES($1,$2,'product-card',1,'{}',2900,'premium') RETURNING id`, [owner, asset]);
+      VALUES($1,$2,'studio-card',1,'{}',2900,'premium') RETURNING id`, [owner, asset]);
     assert.ok(quote);
     const order = await one<{ id: string }>(`INSERT INTO recipe_orders
       (user_id,quote_id,idempotency_key,price_kopecks,status,provider_mode,layout)
@@ -48,9 +49,10 @@ test("Recipe checkout contracts against an isolated, migrated PostgreSQL databas
       await db().query(`DELETE FROM recipe_payment_events WHERE payment_id IN
         (SELECT p.id FROM recipe_payments p JOIN recipe_orders o ON o.id=p.order_id WHERE o.user_id=$1)`, [owner]);
       await db().query("DELETE FROM recipe_payments WHERE order_id IN (SELECT id FROM recipe_orders WHERE user_id=$1)", [owner]);
+      await db().query("DELETE FROM recipe_outputs WHERE user_id=$1", [owner]);
       await db().query("DELETE FROM recipe_orders WHERE user_id=$1", [owner]);
       await db().query("DELETE FROM recipe_quotes WHERE user_id=$1", [owner]);
-      await db().query("DELETE FROM media_assets WHERE id=$1", [asset]);
+      await db().query("DELETE FROM media_assets WHERE user_id=$1", [owner]);
       await db().query("DELETE FROM users WHERE id IN ($1,$2)", [owner, other]);
     } finally {
       await db().end();
@@ -104,7 +106,7 @@ test("Recipe checkout contracts against an isolated, migrated PostgreSQL databas
     assert.equal(await orderStatus(canceled), "awaiting_payment");
   });
 
-  await context.test("YooKassa test shop reconciles lost checkout and refund responses without replay", async subtest => {
+  await context.test("YooKassa recovery and sandbox verification use provider reads without replay", async subtest => {
     process.env.RECIPE_PAYMENT_MODE = "yookassa-test";
     const order = await newOrder();
     const otherOrder = await newOrder();
@@ -117,6 +119,7 @@ test("Recipe checkout contracts against an isolated, migrated PostgreSQL databas
     const amount = { value: "29.00", currency: "RUB" };
     const posts: { url: string; auth: string | null; key: string | null; body: Record<string, unknown> }[] = [];
     const reads: string[] = [];
+    const sandboxPayments = new Map<string, object>();
     let paymentId = "";
     let refundId = "";
     let actualAmount = amount;
@@ -145,6 +148,8 @@ test("Recipe checkout contracts against an isolated, migrated PostgreSQL databas
         return Response.json({ id: paymentExternalId, status: providerStatus, paid: providerStatus === "succeeded",
           test: testPayment, amount: actualAmount, metadata: { recipe_payment_id: paymentId, recipe_order_id: order } });
       }
+      const sandboxPayment = sandboxPayments.get(url);
+      if (sandboxPayment) return Response.json(sandboxPayment);
       assert.equal(url, root + "/refunds/" + refundExternalId);
       return Response.json({ id: refundExternalId, payment_id: paymentExternalId, status: "succeeded", amount: actualAmount,
         metadata: { recipe_payment_id: paymentId, recipe_refund_id: refundId } });
@@ -214,5 +219,43 @@ test("Recipe checkout contracts against an isolated, migrated PostgreSQL databas
       { kind: "payment", status: "succeeded" }, { kind: "payment", status: "unknown" },
       { kind: "refund", status: "succeeded" }, { kind: "refund", status: "unknown" },
     ]);
+
+    providerStatus = "succeeded";
+    const delivered = await newOrder();
+    const canceled = await newOrder();
+    for (const [orderId, id, status] of [
+      [delivered, "delivered-fixture-1", "succeeded"],
+      [canceled, "canceled-fixture-1", "canceled"],
+    ] as const) {
+      const localId = randomUUID();
+      await db().query(`INSERT INTO recipe_payments (id,order_id,amount_kopecks,mode,status,external_id)
+        VALUES ($1,$2,2900,'yookassa-test',$3,$4)`, [localId, orderId, status, id]);
+      await db().query(`INSERT INTO recipe_payment_events(payment_id,kind,status) VALUES($1,'payment',$2)`, [localId, status]);
+      sandboxPayments.set(root + "/payments/" + id, { id, status, paid: status === "succeeded", test: true,
+        amount, metadata: { recipe_payment_id: localId, recipe_order_id: orderId } });
+    }
+    await db().query("UPDATE recipe_orders SET status='completed',completed_at=now() WHERE id=$1", [delivered]);
+    for (let slot = 0; slot < 3; slot++) {
+      const output = randomUUID();
+      await db().query(`INSERT INTO media_assets(id,user_id,kind,object_key,media_type,byte_size,expires_at)
+        VALUES($1,$2,'output',$3,'image/png',1,now()+interval '1 day')`, [output, owner, "output/" + output]);
+      await db().query(`INSERT INTO recipe_outputs(order_id,user_id,asset_id,revision,slot,filename)
+        VALUES($1,$2,$3,1,$4,$5)`, [delivered, owner, output, slot, `sample-${slot}.png`]);
+    }
+    const beforeAudit = reads.length;
+    assert.deepEqual(await verifyRecipeSandbox(delivered, canceled, order), [
+      { scenario: "delivered", orderStatus: "completed", paymentStatus: "succeeded", refundStatus: null, amountKopecks: 2900, currency: "RUB", activePngRecords: 3 },
+      { scenario: "canceled", orderStatus: "awaiting_payment", paymentStatus: "canceled", refundStatus: null, amountKopecks: 2900, currency: "RUB", activePngRecords: 0 },
+      { scenario: "refunded", orderStatus: "failed", paymentStatus: "succeeded", refundStatus: "succeeded", amountKopecks: 2900, currency: "RUB", activePngRecords: 0 },
+    ]);
+    assert.deepEqual(reads.slice(beforeAudit), [
+      root + "/payments/delivered-fixture-1", root + "/payments/canceled-fixture-1",
+      root + "/payments/" + paymentExternalId, root + "/refunds/" + refundExternalId,
+    ]);
+    await assert.rejects(verifyRecipeSandbox(delivered, delivered, order), failure("RECIPE_SANDBOX_CASES"));
+    await assert.rejects(verifyRecipeSandbox(canceled, delivered, order), failure("RECIPE_SANDBOX_LOCAL_MISMATCH"));
+    actualAmount = { ...amount, value: "29.01" };
+    await assert.rejects(verifyRecipeSandbox(delivered, canceled, order), failure("RECIPE_SANDBOX_PROVIDER_MISMATCH"));
+    assert.equal(posts.length, 2);
   });
 });
