@@ -235,9 +235,20 @@ export async function startRecipePayment(userId: string, orderId: string, return
   return publicPayment(await recordProviderPayment(result, undefined, payment.id));
 }
 
-export async function applyRecipePaymentEvent(externalId: string) {
+async function readProviderPayment(externalId: string, expectedLocalId?: string) {
   assert(providerId.safeParse(externalId).success, 422, "INVALID_RECIPE_PAYMENT_ID", "Неверный ID платежа");
-  return publicPayment(await recordProviderPayment(await testRequest("/payments/" + externalId), externalId));
+  return publicPayment(await recordProviderPayment(await testRequest("/payments/" + externalId), externalId, expectedLocalId));
+}
+
+export function applyRecipePaymentEvent(externalId: string) {
+  return readProviderPayment(externalId);
+}
+
+export async function reconcileRecipePayment(orderId: string, externalId: string) {
+  validateOrderId(orderId);
+  const row = await one<{ id: string }>("SELECT id FROM recipe_payments WHERE order_id=$1 AND mode='yookassa-test'", [orderId]);
+  assert(row, 404, "RECIPE_PAYMENT_NOT_FOUND", "Тестовый платёж по заказу не найден");
+  return readProviderPayment(externalId, row.id);
 }
 
 export async function refreshRecipePayment(userId: string, orderId: string) {
@@ -290,9 +301,21 @@ async function recordProviderRefund(raw: unknown, expectedExternalId?: string, e
   });
 }
 
-export async function applyRecipeRefundEvent(externalId: string) {
+async function readProviderRefund(externalId: string, expectedLocalId?: string) {
   assert(providerId.safeParse(externalId).success, 422, "INVALID_RECIPE_REFUND_ID", "Неверный ID возврата");
-  return publicPayment(await recordProviderRefund(await testRequest("/refunds/" + externalId), externalId));
+  return publicPayment(await recordProviderRefund(await testRequest("/refunds/" + externalId), externalId, expectedLocalId));
+}
+
+export function applyRecipeRefundEvent(externalId: string) {
+  return readProviderRefund(externalId);
+}
+
+export async function reconcileRecipeRefund(orderId: string, externalId: string) {
+  validateOrderId(orderId);
+  const row = await one<{ refund_id: string }>(`SELECT refund_id FROM recipe_payments
+    WHERE order_id=$1 AND mode='yookassa-test' AND status='succeeded' AND refund_id IS NOT NULL`, [orderId]);
+  assert(row, 404, "RECIPE_REFUND_NOT_FOUND", "Попытка тестового возврата по заказу не найдена");
+  return readProviderRefund(externalId, row.refund_id);
 }
 
 export async function requestRecipeRefund(userId: string, orderId: string) {

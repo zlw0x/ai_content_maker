@@ -6,13 +6,13 @@ import path from "node:path";
 import test from "node:test";
 import { db, one } from "../src/server/db";
 import { persistRecipeAsset } from "../src/server/media";
-import { attachRecipeResult, recipeOpsReport, reconcileRecipeTrial, resumeRecipeResult } from "../src/server/recipe-ops";
+import { attachRecipeResult, recipeOpsReport, reconcileRecipeTrial, recordRecipeProviderCost, resumeRecipeResult } from "../src/server/recipe-ops";
 import { createRecipeOrder, createRecipeQuote } from "../src/server/recipe-orders";
 import { tickRecipeWorker } from "../src/server/recipe-worker";
 
 const databaseUrl = process.env.RECIPE_OPS_TEST_DATABASE_URL;
 
-test("recipe operations resume only an existing GET and reconcile Trial once", { skip: !databaseUrl }, async context => {
+test("recipe operations recover results without resubmission and reconcile provider expenses once", { skip: !databaseUrl }, async context => {
   const target = new URL(databaseUrl!);
   assert(["localhost", "127.0.0.1"].includes(target.hostname) && ["/test", "/recipe_test"].includes(target.pathname), "Use an isolated loopback test database");
   process.env.DATABASE_URL = databaseUrl;
@@ -100,6 +100,9 @@ test("recipe operations resume only an existing GET and reconcile Trial once", {
   const initial = await recipeOpsReport();
   assert.equal(initial.queue.unknown, 3);
   assert.equal(initial.trial.unreconciledGrants, 4);
+  assert.equal(initial.activity.providerActualNetUsd24h, "0");
+  assert.equal(initial.activity.providerReconciledOrders24h, 0);
+  assert.equal(initial.activity.providerUnreconciledOrders24h, 4);
   assert(!JSON.stringify(initial).includes(runId));
 
   await assert.rejects(resumeRecipeResult(lost), /Нет заказа/);
@@ -139,6 +142,25 @@ test("recipe operations resume only an existing GET and reconcile Trial once", {
   assert.equal((await one("SELECT state FROM recipe_trial_grants WHERE order_id=$1", [uncertain]))?.state, "reserved");
 
   const sourceId = await createOrder("completed", null, `completed-${runId}`);
+  await db().query("UPDATE recipe_orders SET provider_cost_usd=0.004 WHERE id=$1", [sourceId]);
+  const beforeCostCheck = requests.length;
+  await assert.rejects(recordRecipeProviderCost(sourceId, recovered, "0.003"), /указанным ID/);
+  await assert.rejects(recordRecipeProviderCost(failed, `failed-${runId}`, "0.004"), /settle-trial/);
+  await assert.rejects(recordRecipeProviderCost(sourceId, `completed-${runId}`, "0.0000001"), /до 6 знаков/);
+  const records = await Promise.all([
+    recordRecipeProviderCost(sourceId, `completed-${runId}`, "0.003"),
+    recordRecipeProviderCost(sourceId, `completed-${runId}`, "0.003000"),
+  ]);
+  assert.deepEqual(records.sort(), ["already reconciled", "reconciled"]);
+  await assert.rejects(recordRecipeProviderCost(sourceId, `completed-${runId}`, "0.005"), /другую сумму/);
+  assert.equal(requests.length, beforeCostCheck, "Provider-cost recording must not perform any HTTP requests");
+  const { activity: reconciledActivity } = await recipeOpsReport();
+  assert.equal(reconciledActivity.providerQuotedUsd24h, "0.004000");
+  assert.equal(reconciledActivity.providerActualNetUsd24h, "0.007000");
+  assert.equal(reconciledActivity.providerReconciledOrders24h, 3);
+  assert.equal(reconciledActivity.providerUnreconciledOrders24h, 3);
+  assert(!JSON.stringify(reconciledActivity).includes(runId));
+
   const owner = owners.at(-1)!;
   const cutout = await persistRecipeAsset(owner, await readFile("public/examples/product-card/candle.png"));
   await db().query(`INSERT INTO recipe_outputs (order_id,user_id,asset_id,revision,slot,filename)

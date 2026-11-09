@@ -8,6 +8,8 @@ import {
   applyRecipePaymentEvent,
   applyRecipeRefundEvent,
   getRecipePayment,
+  reconcileRecipePayment,
+  reconcileRecipeRefund,
   requestRecipeRefund,
   startRecipePayment,
 } from "../src/server/recipe-payments";
@@ -102,14 +104,19 @@ test("Recipe checkout contracts against an isolated, migrated PostgreSQL databas
     assert.equal(await orderStatus(canceled), "awaiting_payment");
   });
 
-  await context.test("YooKassa test shop validates amounts and recovers lost create responses without replay", async subtest => {
+  await context.test("YooKassa test shop reconciles lost checkout and refund responses without replay", async subtest => {
     process.env.RECIPE_PAYMENT_MODE = "yookassa-test";
     const order = await newOrder();
+    const otherOrder = await newOrder();
+    const otherPayment = randomUUID();
+    await db().query(`INSERT INTO recipe_payments (id,order_id,amount_kopecks,mode,status)
+      VALUES ($1,$2,2900,'yookassa-test','unknown')`, [otherPayment, otherOrder]);
     const paymentExternalId = "payment-fixture-1";
     const refundExternalId = "refund-fixture-1";
     const root = "https://api.yookassa.ru/v3";
     const amount = { value: "29.00", currency: "RUB" };
     const posts: { url: string; auth: string | null; key: string | null; body: Record<string, unknown> }[] = [];
+    const reads: string[] = [];
     let paymentId = "";
     let refundId = "";
     let actualAmount = amount;
@@ -130,6 +137,10 @@ test("Recipe checkout contracts against an isolated, migrated PostgreSQL databas
         }
         throw new TypeError("Response lost after provider accepted the request");
       }
+      assert.equal(method, "GET");
+      assert.equal(headers.get("Authorization"), "Basic " + Buffer.from("123456:test_fixture").toString("base64"));
+      assert.equal(init?.body, undefined);
+      reads.push(url);
       if (url === root + "/payments/" + paymentExternalId) {
         return Response.json({ id: paymentExternalId, status: providerStatus, paid: providerStatus === "succeeded",
           test: testPayment, amount: actualAmount, metadata: { recipe_payment_id: paymentId, recipe_order_id: order } });
@@ -155,9 +166,16 @@ test("Recipe checkout contracts against an isolated, migrated PostgreSQL databas
     await assert.rejects(applyRecipePaymentEvent(paymentExternalId), failure("INVALID_RECIPE_PAYMENT"));
     testPayment = true;
     assert.equal(await orderStatus(order), "awaiting_payment");
+    await assert.rejects(reconcileRecipePayment(otherOrder, paymentExternalId), failure("RECIPE_PAYMENT_MISMATCH"));
+    assert.equal((await getRecipePayment(owner, order))?.status, "unknown");
+    assert.equal((await getRecipePayment(owner, otherOrder))?.status, "unknown");
+    assert.equal(await orderStatus(order), "awaiting_payment");
+    assert.equal(await orderStatus(otherOrder), "awaiting_payment");
+    const beforePayment = reads.length;
     const [paid, duplicate] = await Promise.all([
-      applyRecipePaymentEvent(paymentExternalId), applyRecipePaymentEvent(paymentExternalId),
+      reconcileRecipePayment(order, paymentExternalId), reconcileRecipePayment(order, paymentExternalId),
     ]);
+    assert.deepEqual(reads.slice(beforePayment), Array(2).fill(root + "/payments/" + paymentExternalId));
     assert.equal(paid.status, "succeeded");
     assert.deepEqual(paid, duplicate);
     assert.equal(await orderStatus(order), "queued");
@@ -176,8 +194,25 @@ test("Recipe checkout contracts against an isolated, migrated PostgreSQL databas
     actualAmount = { ...amount, currency: "USD" };
     await assert.rejects(applyRecipeRefundEvent(refundExternalId), failure("INVALID_RECIPE_REFUND"));
     actualAmount = amount;
-    const returned = await applyRecipeRefundEvent(refundExternalId);
+    await db().query(`UPDATE recipe_payments SET status='succeeded', external_id='payment-fixture-other',
+      refund_id=$2, refund_status='unknown' WHERE id=$1`, [otherPayment, randomUUID()]);
+    await assert.rejects(reconcileRecipeRefund(otherOrder, refundExternalId), failure("RECIPE_REFUND_MISMATCH"));
+    assert.equal((await getRecipePayment(owner, order))?.refundStatus, "unknown");
+    assert.equal((await getRecipePayment(owner, otherOrder))?.refundStatus, "unknown");
+    const beforeRefund = reads.length;
+    const [returned, repeatRefund] = await Promise.all([
+      reconcileRecipeRefund(order, refundExternalId), reconcileRecipeRefund(order, refundExternalId),
+    ]);
+    assert.deepEqual(reads.slice(beforeRefund), Array(2).fill(root + "/refunds/" + refundExternalId));
     assert.equal(returned.refundStatus, "succeeded");
+    assert.deepEqual(repeatRefund, returned);
     assert.deepEqual(await applyRecipeRefundEvent(refundExternalId), returned);
+    assert.equal(posts.length, 2);
+    const events = await db().query<{ kind: string; status: string }>(
+      "SELECT kind,status FROM recipe_payment_events WHERE payment_id=$1 ORDER BY kind,status", [paymentId]);
+    assert.deepEqual(events.rows, [
+      { kind: "payment", status: "succeeded" }, { kind: "payment", status: "unknown" },
+      { kind: "refund", status: "succeeded" }, { kind: "refund", status: "unknown" },
+    ]);
   });
 });

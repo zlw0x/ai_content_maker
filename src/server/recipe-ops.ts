@@ -5,17 +5,27 @@ import { config } from "./config";
 import { getPrediction } from "./wavespeed";
 import { recipeFunnelReport } from "./recipe-funnel";
 
+const netUsdPattern = /^\d{1,8}(\.\d{1,6})?$/;
+
 export async function recipeOpsReport() {
   const client = await db().connect();
   try {
     await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
-    const { rows: [activity] } = await client.query(`SELECT now() AS "asOf", count(*)::int AS "orders24h",
+    const { rows: [activity] } = await client.query(`WITH recent AS (
+      SELECT o.*, coalesce(t.net_usd, o.provider_actual_usd) AS actual_usd
+      FROM recipe_orders o LEFT JOIN recipe_trial_reconciliations t ON t.order_id=o.id
+      WHERE o.created_at>=now()-interval '24 hours'
+    ) SELECT now() AS "asOf", count(*)::int AS "orders24h",
       (count(*) FILTER (WHERE status='completed'))::int AS "completed24h",
       (count(*) FILTER (WHERE status='failed'))::int AS "failed24h",
       (count(*) FILTER (WHERE status='unknown'))::int AS "unknown24h",
       round(avg(extract(epoch FROM completed_at-created_at)) FILTER (WHERE status='completed'))::int AS "meanTimeToResultSeconds24h",
-      coalesce(sum(provider_cost_usd) FILTER (WHERE provider_prediction_id IS NOT NULL),0)::text AS "providerQuotedUsd24h"
-      FROM recipe_orders WHERE created_at>=now()-interval '24 hours'`);
+      coalesce(sum(provider_cost_usd) FILTER (WHERE provider_prediction_id IS NOT NULL),0)::text AS "providerQuotedUsd24h",
+      coalesce(sum(actual_usd),0)::text AS "providerActualNetUsd24h",
+      count(actual_usd)::int AS "providerReconciledOrders24h",
+      (count(*) FILTER (WHERE provider_mode='live' AND actual_usd IS NULL
+        AND (provider_prediction_id IS NOT NULL OR error_code='SUBMISSION_UNCERTAIN')))::int AS "providerUnreconciledOrders24h"
+      FROM recent`);
     const { rows: [queue] } = await client.query(`SELECT
       (count(*) FILTER (WHERE status='queued'))::int AS queued,
       (count(*) FILTER (WHERE status IN ('preparing','submitting','processing')))::int AS active,
@@ -62,7 +72,7 @@ export async function attachRecipeResult(orderId: string, predictionId: string) 
 }
 
 export async function reconcileRecipeTrial(orderId: string, value: string) {
-  if (!/^\d{1,8}(\.\d{1,6})?$/.test(value)) throw new Error("Укажите сверенное чистое списание в USD, до 6 знаков после точки");
+  if (!netUsdPattern.test(value)) throw new Error("Укажите сверенное чистое списание в USD, до 6 знаков после точки");
   const net = new Decimal(value);
   return transaction(async client => {
     const { rows: [order] } = await client.query<{ status: string; provider_mode: string }>(
@@ -79,6 +89,25 @@ export async function reconcileRecipeTrial(orderId: string, value: string) {
     await settleTrial(client, orderId, net.gt(0), net.toFixed(6));
     await client.query("INSERT INTO recipe_trial_reconciliations (order_id, net_usd) VALUES ($1,$2)", [orderId, net.toFixed(6)]);
     await client.query("UPDATE recipe_orders SET status='failed', error_code='TRIAL_RECONCILED', updated_at=now() WHERE id=$1", [orderId]);
+    return "reconciled";
+  });
+}
+
+export async function recordRecipeProviderCost(orderId: string, predictionId: string, value: string) {
+  if (!netUsdPattern.test(value)) throw new Error("Укажите сверенное чистое списание в USD, до 6 знаков после точки");
+  const net = new Decimal(value);
+  return transaction(async client => {
+    const { rows: [order] } = await client.query<{ provider_actual_usd: string | null }>(`SELECT o.provider_actual_usd
+      FROM recipe_orders o JOIN recipe_quotes q ON q.id=o.quote_id
+      WHERE o.id=$1 AND o.provider_mode='live' AND o.provider_prediction_id=$2
+      AND (o.status='completed' OR (o.status='failed' AND q.access='premium')) FOR UPDATE OF o`, [orderId, predictionId]);
+    if (!order) throw new Error("Нет завершённого заказа с указанным ID WaveSpeed. Для сбоя Trial используйте settle-trial");
+    if (order.provider_actual_usd !== null) {
+      if (!net.eq(order.provider_actual_usd)) throw new Error("Заказ уже сверён на другую сумму");
+      return "already reconciled";
+    }
+    await client.query("UPDATE recipe_orders SET provider_actual_usd=$2, provider_reconciled_at=now() WHERE id=$1",
+      [orderId, net.toFixed(6)]);
     return "reconciled";
   });
 }
