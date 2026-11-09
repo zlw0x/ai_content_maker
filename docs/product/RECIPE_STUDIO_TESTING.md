@@ -20,6 +20,8 @@ RECIPE_EMAIL_DELIVERY=mock
 - `npm run test:recipe-payments` использует изолированную мигрированную базу из `RECIPE_PAYMENT_TEST_DATABASE_URL` и подменяет запросы к ЮKassa.
 - `npm run test:recipes` прогоняет HTTP-сценарий с реальным PostgreSQL и mock worker. `APP_ORIGIN` и `DATABASE_URL` должны указывать на тот же тестовый контур.
 
+Из завершённого Trial «Удалить фон» откройте «Собрать карточку с этим фото». Карточки и реклама используют выданный владельцу PNG из приватного хранилища без повторной загрузки и вызова WaveSpeed. После окончания срока хранения потребуется исходное фото.
+
 ## Внешние интеграции
 
 - У `RECIPE_PAYMENT_MODE=yookassa-test` отдельные `YOOKASSA_TEST_SHOP_ID` и `YOOKASSA_TEST_SECRET_KEY`. Вебхук тестового магазина указывает на `/api/webhooks/recipe-yookassa`. Уведомление приводит к серверной сверке объекта по API. Worker этого контура работает в `WAVESPEED_MODE=mock`.

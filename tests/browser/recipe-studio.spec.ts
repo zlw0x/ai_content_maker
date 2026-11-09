@@ -125,12 +125,14 @@ test("premium wizard refreshes changed quotes and recovers the same order after 
   await expect(page.getByLabel("Исходное фото")).toBeEnabled();
 });
 
-test("trial wizard confirms email and opens a free order without entering checkout", async ({ page }) => {
+test("trial confirms email and passes a completed cutout to Premium without uploading it again", async ({ page }) => {
   const assetId = randomUUID();
   const orderId = randomUUID();
   const quoteId = randomUUID();
   let verified = false;
+  let completed = false;
   let paymentReads = 0;
+  let uploads = 0;
   await page.route("**/api/v1/recipe-availability", route => route.fulfill({ json: {
     enabled: true, trialEnabled: true, verified, trialState: "available", mock: true, paymentMode: "mock",
   } }));
@@ -140,19 +142,31 @@ test("trial wizard confirms email and opens a free order without entering checko
     verified = true;
     await route.fulfill({ json: { verified } });
   });
-  await page.route("**/api/v1/assets", route => route.fulfill({ json: { id: assetId } }));
+  await page.route("**/api/v1/assets", route => {
+    uploads++;
+    return route.fulfill({ json: { id: assetId } });
+  });
+  const fileUrl = `/api/v1/assets/${assetId}`;
+  await page.route(`**${fileUrl}?view=1`, route => route.fulfill({ contentType: "image/png", body: png }));
   await page.route("**/api/v1/recipe-quotes", async route => {
     expect(verified).toBe(true);
-    expect(route.request().postDataJSON()).toMatchObject({ recipeKey: "remove-background", access: "trial", assetId });
-    await route.fulfill({ json: { id: quoteId, priceKopecks: 0, currency: "RUB", expiresAt: expiry() } });
+    const body = route.request().postDataJSON();
+    if (completed) {
+      expect(body).toMatchObject({ recipeKey: "studio-card", access: "premium", sourceOrderId: orderId });
+      expect(body).not.toHaveProperty("assetId");
+    } else {
+      expect(body).toMatchObject({ recipeKey: "remove-background", access: "trial", assetId });
+    }
+    await route.fulfill({ json: { id: quoteId, priceKopecks: completed ? 2900 : 0, currency: "RUB", expiresAt: expiry() } });
   });
   await page.route("**/api/v1/recipe-orders", async route => {
     expect(route.request().postDataJSON()).toEqual({ quoteId });
     await route.fulfill({ json: { id: orderId, status: "queued" } });
   });
   await page.route(`**/api/v1/recipe-orders/${orderId}`, route => route.fulfill({ json: {
-    id: orderId, status: "processing", priceKopecks: 0, layout, revision: 1, errorCode: null, expiresAt: expiry(),
-    recipeKey: "remove-background", version: 1, access: "trial", mock: true, files: [],
+    id: orderId, status: completed ? "completed" : "processing", priceKopecks: 0, layout, revision: 1, errorCode: null, expiresAt: expiry(),
+    recipeKey: "remove-background", version: 1, access: "trial", mock: true, canReuseCutout: completed,
+    files: completed ? [{ id: assetId, filename: "remove-background.png", url: fileUrl }] : [],
   } }));
   await page.route(`**/api/v1/recipe-orders/${orderId}/payment`, async route => {
     paymentReads++;
@@ -171,6 +185,14 @@ test("trial wizard confirms email and opens a free order without entering checko
   await expect(page).toHaveURL(new RegExp(`order=${orderId}$`));
   await expect(page.getByRole("heading", { name: "Пробная обработка" })).toBeVisible();
   await expect(page.getByRole("status").filter({ hasText: "Создаём материалы" })).toBeVisible();
+  completed = true;
+  await page.getByRole("button", { name: "Обновить статус заказа" }).click();
+  await page.getByRole("link", { name: "Собрать карточку с этим фото" }).click();
+  await expect(page.getByRole("img", { name: "Готовое фото без фона" })).toBeVisible();
+  await page.getByLabel("Название товара").fill("Термокружка");
+  await calculate.click();
+  await expect(page.getByRole("button", { name: "Продолжить к тестовой оплате" })).toBeVisible();
+  expect(uploads).toBe(1);
   expect(paymentReads).toBe(0);
 });
 test("the live example gallery has 12 pairs and keeps the selected example for sign-in", async ({ page }) => {

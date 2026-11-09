@@ -5,7 +5,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { db, one } from "../src/server/db";
+import { persistRecipeAsset } from "../src/server/media";
 import { attachRecipeResult, recipeOpsReport, reconcileRecipeTrial, resumeRecipeResult } from "../src/server/recipe-ops";
+import { createRecipeOrder, createRecipeQuote } from "../src/server/recipe-orders";
 import { tickRecipeWorker } from "../src/server/recipe-worker";
 
 const databaseUrl = process.env.RECIPE_OPS_TEST_DATABASE_URL;
@@ -49,6 +51,10 @@ test("recipe operations resume only an existing GET and reconcile Trial once", {
 
   context.after(async () => {
     try {
+      const { rows: outputs } = await db().query<{ object_key: string }>(
+        "SELECT object_key FROM media_assets WHERE user_id=ANY($1::uuid[]) AND kind='output'", [owners]);
+      await db().query("DELETE FROM recipe_outputs WHERE user_id=ANY($1::uuid[])", [owners]);
+      await db().query("UPDATE recipe_quotes SET source_order_id=NULL WHERE user_id=ANY($1::uuid[]) AND source_order_id IS NOT NULL", [owners]);
       await db().query("DELETE FROM recipe_trial_reconciliations WHERE order_id IN (SELECT id FROM recipe_orders WHERE user_id=ANY($1::uuid[]))", [owners]);
       await db().query("DELETE FROM recipe_trial_grants WHERE user_id=ANY($1::uuid[])", [owners]);
       await db().query("DELETE FROM recipe_orders WHERE user_id=ANY($1::uuid[])", [owners]);
@@ -56,6 +62,8 @@ test("recipe operations resume only an existing GET and reconcile Trial once", {
       await db().query("DELETE FROM media_assets WHERE user_id=ANY($1::uuid[])", [owners]);
       await db().query("DELETE FROM users WHERE id=ANY($1::uuid[])", [owners]);
       await db().query("DELETE FROM recipe_trial_days WHERE day=$1", [day]);
+      for (const output of outputs) await unlink(path.join(storage, output.object_key));
+      if (outputs.length) await rmdir(path.join(storage, "output"));
     } finally {
       await db().end();
       for (const input of inputs) await unlink(input);
@@ -129,4 +137,23 @@ test("recipe operations resume only an existing GET and reconcile Trial once", {
   assert.equal(requests.filter(request => request.url === submitUrl && request.method === "POST").length, 1);
   assert.equal((await one("SELECT error_code FROM recipe_orders WHERE id=$1", [uncertain]))?.error_code, "SUBMISSION_UNCERTAIN");
   assert.equal((await one("SELECT state FROM recipe_trial_grants WHERE order_id=$1", [uncertain]))?.state, "reserved");
+
+  const sourceId = await createOrder("completed", null, `completed-${runId}`);
+  const owner = owners.at(-1)!;
+  const cutout = await persistRecipeAsset(owner, await readFile("public/examples/product-card/candle.png"));
+  await db().query(`INSERT INTO recipe_outputs (order_id,user_id,asset_id,revision,slot,filename)
+    VALUES ($1,$2,$3,1,0,'remove-background.png')`, [sourceId, owner, cutout]);
+  const quote = await createRecipeQuote(owner, {
+    recipeKey: "studio-card", sourceOrderId: sourceId, access: "premium", layout: { title: "Свеча" },
+  });
+  const job = await createRecipeOrder(owner, { quoteId: quote.id }, randomUUID(), "127.0.0.1");
+  await db().query("UPDATE recipe_orders SET status='queued' WHERE id=$1", [job.id]);
+  await db().query("UPDATE recipe_orders SET last_polled_at=now() WHERE user_id=ANY($1::uuid[]) AND status='processing'", [owners]);
+  const beforeReuse = requests.length;
+  await tickRecipeWorker();
+  assert.equal(requests.length, beforeReuse, "Live-mode cutout reuse must make no provider calls");
+  assert.deepEqual(await one(`SELECT status,provider_prediction_id,provider_cost_usd FROM recipe_orders WHERE id=$1`, [job.id]), {
+    status: "completed", provider_prediction_id: null, provider_cost_usd: null,
+  });
+  assert.equal((await one("SELECT count(*)::int AS count FROM recipe_outputs WHERE order_id=$1", [job.id]))?.count, 3);
 });

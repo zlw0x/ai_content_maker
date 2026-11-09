@@ -8,7 +8,7 @@ import { db, one, transaction } from "./db";
 import { assert } from "./errors";
 import { inputForQuote, localMedia, persistRecipeAsset, readProviderImage, userAsset } from "./media";
 import { normalizeRecipeInput, renderRecipe } from "./recipe-render";
-import { getRecipeOrder, recipeCostCeilingUsd, recipeLayoutSchema, recipeOrdersEnabled, settleTrial } from "./recipe-orders";
+import { getRecipeOrder, recipeCostCeilingUsd, recipeLayoutSchema, recipeOrdersEnabled, reusableTrialCutout, settleTrial } from "./recipe-orders";
 import { getPrediction, providerPrice, submitPrediction, uploadWaveSpeed } from "./wavespeed";
 
 const models = {
@@ -20,6 +20,7 @@ const declined = new Set(["PROVIDER_HTTP_400", "PROVIDER_HTTP_401", "PROVIDER_HT
 type Job = {
   id: string; user_id: string; status: "preparing" | "processing"; layout: RecipeLayout;
   asset_id: string; recipe_key: RecipeKey; recipe_version: number; attempt_id: string;
+  source_order_id: string | null;
   provider_prediction_id: string | null;
 };
 
@@ -32,7 +33,7 @@ async function claim(status: "queued" | "processing"): Promise<Job | null> {
         AND status IN ('preparing','submitting','processing')`, [mode]);
       if (Number(active.rows[0].count) >= config().WORKER_CONCURRENCY) return null;
     }
-    const { rows: [row] } = await client.query<Job>(`SELECT o.*, q.asset_id, q.recipe_key, q.recipe_version FROM recipe_orders o
+    const { rows: [row] } = await client.query<Job>(`SELECT o.*, q.asset_id, q.source_order_id, q.recipe_key, q.recipe_version FROM recipe_orders o
       JOIN recipe_quotes q ON q.id=o.quote_id WHERE o.status=$1 AND o.provider_mode=$2
       AND ($1='queued' OR ((o.last_polled_at IS NULL OR o.last_polled_at < now()-interval '5 seconds')
         AND (o.attempt_id IS NULL OR o.last_polled_at < now()-interval '4 minutes')))
@@ -92,6 +93,12 @@ async function prepare(job: Job) {
   let request: Record<string, string>;
   let cost: Decimal;
   try {
+    if (job.source_order_id) {
+      const cutout = await reusableTrialCutout(job.user_id, job.source_order_id, 0);
+      assert(cutout?.id === job.asset_id, 404, "FILE_NOT_FOUND", "Готовое фото недоступно");
+      await publish(job, await localMedia(cutout.object_key));
+      return;
+    }
     const file = await inputForQuote(job.user_id, job.asset_id);
     const source = await normalizeRecipeInput(file.buffer);
     if (config().WAVESPEED_MODE === "mock") {

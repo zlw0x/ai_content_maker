@@ -8,6 +8,7 @@ import { sha256 } from "./security";
 import { recipeFunnelDigest } from "./recipe-funnel";
 
 const uuid = z.string().uuid();
+const reuseWindowSeconds = 30 * 60;
 export const recipeCostCeilingUsd = "0.01";
 export const recipeLayoutSchema = z.object({
   title: z.string().trim().max(64).default(""),
@@ -19,12 +20,12 @@ export const recipeLayoutSchema = z.object({
 }).strict();
 
 const quoteSchema = z.object({
-  recipeKey: z.string().refine(isRecipeKey), assetId: uuid,
+  recipeKey: z.string().refine(isRecipeKey), assetId: uuid.optional(), sourceOrderId: uuid.optional(),
   access: z.enum(["trial", "premium"]), layout: recipeLayoutSchema.default({}),
-}).strict();
+}).strict().refine(request => Boolean(request.assetId) !== Boolean(request.sourceOrderId));
 
 type QuoteRow = {
-  id: string; asset_id: string; recipe_key: RecipeKey; recipe_version: number;
+  id: string; asset_id: string; source_order_id: string | null; recipe_key: RecipeKey; recipe_version: number;
   access: "trial" | "premium"; price_kopecks: number; layout: RecipeLayout; expires_at: Date;
 };
 
@@ -40,6 +41,19 @@ async function lockInput(client: PoolClient, userId: string, assetId: string) {
   const asset = await client.query(`SELECT id FROM media_assets WHERE id=$1 AND user_id=$2 AND kind='input'
     AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at>now()) FOR SHARE`, [assetId, userId]);
   assert(asset.rowCount, 404, "FILE_NOT_FOUND", "Изображение не найдено");
+}
+
+export async function reusableTrialCutout(userId: string, orderId: string, minimumSeconds = reuseWindowSeconds, client?: PoolClient) {
+  const { rows: [cutout] } = await (client ?? db()).query<{ id: string; object_key: string }>(`SELECT a.id, a.object_key
+    FROM recipe_orders o JOIN recipe_quotes q ON q.id=o.quote_id
+    JOIN recipe_outputs r ON r.order_id=o.id AND r.revision=o.revision AND r.slot=0
+    JOIN media_assets a ON a.id=r.asset_id AND a.user_id=o.user_id
+    WHERE o.id=$1 AND o.user_id=$2 AND o.provider_mode=$3 AND o.status='completed'
+    AND q.access='trial' AND q.recipe_key='remove-background' AND q.recipe_version=$4
+    AND a.kind='output' AND a.media_type='image/png' AND a.deleted_at IS NULL AND a.purged_at IS NULL
+    AND a.expires_at>now()+$5::integer*interval '1 second'
+    ${client ? "FOR SHARE OF a" : ""}`, [orderId, userId, config().WAVESPEED_MODE, recipeVersion, minimumSeconds]);
+  return cutout;
 }
 
 export async function recipeAvailability(userId: string) {
@@ -60,6 +74,8 @@ export async function createRecipeQuote(userId: string, raw: unknown, visitId: s
   if (request.access === "trial") {
     assert(recipe.trial && config().RECIPE_TRIAL_ENABLED === "true", 409, "TRIAL_DISABLED", "Пробная обработка недоступна");
   }
+  assert(!request.sourceOrderId || (request.access === "premium" && !recipe.trial), 422, "RECIPE_INPUT",
+    "Готовое фото без фона подходит для карточек и рекламы");
   if (!recipe.trial) assert(request.layout.title, 422, "RECIPE_TITLE", "Введите название товара");
   const price = request.access === "trial" ? 0 : recipe.priceKopecks;
   return transaction(async client => {
@@ -67,11 +83,19 @@ export async function createRecipeQuote(userId: string, raw: unknown, visitId: s
     const limits = await client.query<{ count: string }>(`SELECT count(*) FROM recipe_quotes
       WHERE user_id=$1 AND created_at>now()-interval '1 hour'`, [userId]);
     assert(Number(limits.rows[0].count) < 30, 429, "RECIPE_QUOTE_LIMIT", "Лимит расчётов на этот час исчерпан");
-    await lockInput(client, userId, request.assetId);
+    let assetId = request.assetId;
+    if (request.sourceOrderId) {
+      const cutout = await reusableTrialCutout(userId, request.sourceOrderId, reuseWindowSeconds, client);
+      assert(cutout, 404, "FILE_NOT_FOUND", "Готовое фото недоступно. Выберите исходное фото заново");
+      assetId = cutout.id;
+    } else {
+      assert(assetId, 422, "RECIPE_INPUT", "Выберите исходное фото");
+      await lockInput(client, userId, assetId);
+    }
     const { rows: [quote] } = await client.query<QuoteRow>(`INSERT INTO recipe_quotes
-      (user_id, asset_id, recipe_key, recipe_version, layout, price_kopecks, access, funnel_digest)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, expires_at`,
-      [userId, request.assetId, request.recipeKey, recipeVersion, request.layout, price, request.access, recipeFunnelDigest(visitId)]);
+      (user_id, asset_id, recipe_key, recipe_version, layout, price_kopecks, access, funnel_digest, source_order_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id, expires_at`,
+      [userId, assetId, request.recipeKey, recipeVersion, request.layout, price, request.access, recipeFunnelDigest(visitId), request.sourceOrderId ?? null]);
     return { id: quote.id, recipeKey: request.recipeKey, version: recipeVersion, priceKopecks: price, currency: "RUB", expiresAt: quote.expires_at };
   });
 }
@@ -122,7 +146,12 @@ export async function createRecipeOrder(userId: string, raw: unknown, key: strin
     assert(quote, 409, "RECIPE_QUOTE_EXPIRED", "Расчёт истёк, запросите новый");
     const used = await client.query("SELECT id FROM recipe_orders WHERE quote_id=$1", [quote.id]);
     assert(!used.rowCount, 409, "RECIPE_QUOTE_USED", "По этому расчёту уже создан заказ");
-    await lockInput(client, userId, quote.asset_id);
+    if (quote.source_order_id) {
+      const cutout = await reusableTrialCutout(userId, quote.source_order_id, reuseWindowSeconds, client);
+      assert(cutout?.id === quote.asset_id, 404, "FILE_NOT_FOUND", "Готовое фото недоступно. Выберите исходное фото заново");
+    } else {
+      await lockInput(client, userId, quote.asset_id);
+    }
     const trial = quote.access === "trial";
     if (trial) assert(config().RECIPE_TRIAL_ENABLED === "true", 409, "TRIAL_DISABLED", "Пробная обработка временно недоступна");
     const { rows: [order] } = await client.query<{ id: string; status: string }>(`INSERT INTO recipe_orders
@@ -145,7 +174,9 @@ export async function getRecipeOrder(userId: string, orderId: string) {
     JOIN recipe_orders o ON o.id=out.order_id AND o.revision=out.revision
     JOIN media_assets a ON a.id=out.asset_id AND a.user_id=out.user_id
     WHERE out.order_id=$1 AND out.user_id=$2 AND a.deleted_at IS NULL AND a.expires_at>now() ORDER BY out.slot`, [orderId, userId]);
-  return { ...order, files: files.rows.map(file => ({ ...file, url: `/api/v1/assets/${file.id}` })) };
+  const canReuseCutout = order.status === "completed" && order.access === "trial" && order.recipeKey === "remove-background"
+    && files.rows.length > 0 && Boolean(await reusableTrialCutout(userId, orderId));
+  return { ...order, canReuseCutout, files: files.rows.map(file => ({ ...file, url: `/api/v1/assets/${file.id}` })) };
 }
 
 export async function listRecipeOrders(userId: string) {

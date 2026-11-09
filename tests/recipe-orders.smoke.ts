@@ -13,8 +13,8 @@ const layout = {
 };
 
 type Reply<T> = { response: Response; body: T };
-type RecipeFile = { filename: string; url: string };
-type Order = { id: string; status: string; mock: boolean; revision: number; files: RecipeFile[] };
+type RecipeFile = { id: string; filename: string; url: string };
+type Order = { id: string; status: string; mock: boolean; canReuseCutout: boolean; revision: number; files: RecipeFile[] };
 type Quote = { id: string; priceKopecks: number };
 type Payment = { id: string; status: string; amountKopecks: number; mode: string };
 type Availability = { enabled: boolean; mock: boolean; paymentMode: string; trialEnabled: boolean; verified: boolean; trialState: string };
@@ -169,7 +169,7 @@ async function main() {
   assert.ok(verification.demoCode);
   expectOk(await api("/auth/verify-email/confirm", owner, "POST", { code: verification.demoCode }));
   assert.equal(expectStatus(await api<Availability>("/recipe-availability", owner), 200).verified, true);
-  const alternative = expectStatus(await api<Quote>("/recipe-quotes", owner, "POST", { ...trialInput, recipeKey: "enhance-photo" }), 201);
+  const alternative = expectStatus(await api<Quote>("/recipe-quotes", owner, "POST", trialInput), 201);
   const trials = await Promise.all([
     api<{ id: string; error?: { code: string } }>("/recipe-orders", owner, "POST", { quoteId: trialQuote.id }, randomUUID()),
     api<{ id: string; error?: { code: string } }>("/recipe-orders", owner, "POST", { quoteId: alternative.id }, randomUUID()),
@@ -181,10 +181,41 @@ async function main() {
   const trial = await waitForOrder(owner, accepted.body.id);
   assert.equal(trial.files.length, 1);
   assert.equal(trial.mock, true);
+  assert.equal(trial.canReuseCutout, true);
   await expectPng(owner, trial.files[0]);
   assert.equal(expectStatus(await api<Availability>("/recipe-availability", owner), 200).trialState, "used");
+  const enhance = expectStatus(await api<Quote>("/recipe-quotes", owner, "POST", { ...trialInput, recipeKey: "enhance-photo" }), 201);
+  expectStatus(await api("/recipe-orders", owner, "POST", { quoteId: enhance.id }, randomUUID()), 409);
+
+  const reuseInput = { recipeKey: "studio-card", sourceOrderId: trial.id, access: "premium", layout };
+  expectStatus(await api("/recipe-quotes", stranger, "POST", reuseInput), 404);
+  expectStatus(await api("/recipe-quotes", owner, "POST", { ...reuseInput, sourceOrderId: premium.id }), 404);
+  expectStatus(await api("/recipe-quotes", owner, "POST", { ...reuseInput, assetId }), 422);
+  expectStatus(await api("/recipe-quotes", owner, "POST", { ...reuseInput, recipeKey: "enhance-photo" }), 422);
+  const reuseQuote = expectStatus(await api<Quote>("/recipe-quotes", owner, "POST", reuseInput), 201);
+  assert.equal(reuseQuote.priceKopecks, premiumQuote.priceKopecks);
+  const reusedOrder = expectOk(await api<Order>("/recipe-orders", owner, "POST", { quoteId: reuseQuote.id }, randomUUID()));
+  const reusePath = "/recipe-orders/" + reusedOrder.id;
+  expectOk(await api<Payment>(reusePath + "/payment", owner, "POST", {}));
+  expectOk(await api<Payment>(reusePath + "/mock-payment", owner, "POST", { outcome: "succeeded" }));
+  const reused = await waitForOrder(owner, reusedOrder.id);
+  assert.equal(reused.files.length, 3);
+  assert.equal(reused.canReuseCutout, false);
+  await Promise.all(reused.files.map(file => expectPng(owner, file)));
+  assert.equal((await download(stranger, reused.files[0])).status, 404);
+  const trialCutout = trial.files[0].id;
+  const reusedSnapshot = await providerSnapshot(reused.id);
+  assert.equal(reusedSnapshot.provider_prediction_id, null);
+  assert.equal(reusedSnapshot.provider_cost_usd, null);
+  assert.notEqual(reusedSnapshot.prepared_asset_id, trialCutout);
+  assert.deepEqual((await pool!.query("SELECT asset_id, source_order_id FROM recipe_quotes WHERE id=$1", [reuseQuote.id])).rows[0],
+    { asset_id: trialCutout, source_order_id: trial.id });
+  await pool!.query("UPDATE media_assets SET expires_at=now() WHERE id=$1", [trialCutout]);
+  assert.equal(expectOk(await api<Order>("/recipe-orders/" + trial.id, owner)).canReuseCutout, false);
+  expectStatus(await api("/recipe-quotes", owner, "POST", reuseInput), 404);
+  await expectPng(owner, reused.files[0]);
   assert.deepEqual(expectStatus(await api("/wallet", owner), 200), walletBefore, "Recipe checkout and Trial do not mutate the legacy wallet");
-  console.log("Recipe smoke OK — one mock checkout, private PNGs, paid edit without provider replay, and one Trial across concurrent requests");
+  console.log("Recipe smoke OK — mock checkout, private PNGs, local edits, atomic Trial grant and reuse of an owned cutout");
 }
 
 main().catch(error => {

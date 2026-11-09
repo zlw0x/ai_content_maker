@@ -17,15 +17,17 @@ export const metadata: Metadata = {
 const uuid = /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i;
 
 export default async function RecipesPage({ searchParams }: {
-  searchParams: Promise<{ recipe?: string | string[]; order?: string | string[]; handoff?: string | string[]; example?: string | string[] }>;
+  searchParams: Promise<{ recipe?: string | string[]; order?: string | string[]; handoff?: string | string[]; reuse?: string | string[]; example?: string | string[] }>;
 }) {
   const params = await searchParams;
   const orderId = typeof params.order === "string" && uuid.test(params.order) ? params.order : undefined;
   const handoff = !orderId && typeof params.handoff === "string" && uuid.test(params.handoff) ? params.handoff : undefined;
-  const example = !orderId && !handoff && typeof params.example === "string" ? getRecipeExample(params.example) : undefined;
+  const reuse = !orderId && !handoff && typeof params.reuse === "string" && uuid.test(params.reuse) ? params.reuse : undefined;
+  const example = !orderId && !handoff && !reuse && typeof params.example === "string" ? getRecipeExample(params.example) : undefined;
   const funnelEnabled = recipeFunnelEnabled();
   const recipeKey = example?.recipeKey ?? (typeof params.recipe === "string" && isRecipeKey(params.recipe) ? params.recipe : "studio-card");
-  const resume = "/apps/recipes?" + new URLSearchParams({ recipe: recipeKey, ...(orderId ? { order: orderId } : {}), ...(example ? { example: example.id } : {}) });
+  const resume = "/apps/recipes?" + new URLSearchParams({ recipe: recipeKey, ...(orderId ? { order: orderId } : {}),
+    ...(reuse ? { reuse } : {}), ...(example ? { example: example.id } : {}) });
 
   let signedIn = false;
   try {
@@ -45,7 +47,7 @@ export default async function RecipesPage({ searchParams }: {
       <h1>Готовые материалы из вашего фото</h1>
       <p>Карточки, реклама и обработка фотографий. Выберите результат, добавьте исходник и проверьте стоимость до запуска.</p>
     </header>
-    {signedIn ? <RecipeStudio key={resume} initialRecipe={recipeKey} orderId={orderId} handoff={handoff} example={example} funnelEnabled={funnelEnabled} /> : <div className={styles.shell}>
+    {signedIn ? <RecipeStudio key={resume} initialRecipe={recipeKey} orderId={orderId} handoff={handoff} reuse={reuse} example={example} funnelEnabled={funnelEnabled} /> : <div className={styles.shell}>
       <section className={styles.panel} aria-labelledby="recipe-gallery-title">
         <h2 id="recipe-gallery-title">Что подготовим?</h2>
         <div className={styles.catalog}>

@@ -33,6 +33,7 @@ type Order = {
   version: number;
   access: Access;
   mock: boolean;
+  canReuseCutout: boolean;
   files: { id: string; filename: string; url: string }[];
 };
 type PaymentStatus = "pending" | "succeeded" | "canceled" | "unknown";
@@ -161,8 +162,11 @@ function VerifyEmail({ onVerified }: { onVerified: () => void }) {
 }
 
 type ShowcaseExample = ReturnType<typeof getRecipeExample>;
+const cutoutUnavailable = "Готовое фото недоступно. Выберите исходное фото заново.";
 
-export function RecipeStudio({ initialRecipe, orderId, handoff, example, funnelEnabled }: { initialRecipe: RecipeKey; orderId?: string; handoff?: string; example?: ShowcaseExample; funnelEnabled: boolean }) {
+export function RecipeStudio({ initialRecipe, orderId, handoff, reuse, example, funnelEnabled }: {
+  initialRecipe: RecipeKey; orderId?: string; handoff?: string; reuse?: string; example?: ShowcaseExample; funnelEnabled: boolean;
+}) {
   const [settings, setSettings] = useState<Availability | null>(null);
   const [settingsError, setSettingsError] = useState("");
   const [reload, setReload] = useState(0);
@@ -190,12 +194,12 @@ export function RecipeStudio({ initialRecipe, orderId, handoff, example, funnelE
       <Link className="button button-secondary" href="/apps/photo-tools">Подготовить фото</Link></div>
   </section>;
 
-  return <RecipeWizard key={handoff} initialRecipe={initialRecipe} settings={settings} handoff={handoff} example={example} funnelEnabled={funnelEnabled}
+  return <RecipeWizard key={handoff} initialRecipe={initialRecipe} settings={settings} handoff={handoff} reuse={reuse} example={example} funnelEnabled={funnelEnabled}
     onVerified={() => setSettings(current => current && { ...current, verified: true })} />;
 }
 
-function RecipeWizard({ initialRecipe, settings, handoff, example, funnelEnabled, onVerified }: {
-  initialRecipe: RecipeKey; settings: Availability; handoff?: string; example?: ShowcaseExample; funnelEnabled: boolean; onVerified: () => void;
+function RecipeWizard({ initialRecipe, settings, handoff, reuse, example, funnelEnabled, onVerified }: {
+  initialRecipe: RecipeKey; settings: Availability; handoff?: string; reuse?: string; example?: ShowcaseExample; funnelEnabled: boolean; onVerified: () => void;
 }) {
   const [recipeKey, setRecipeKey] = useState(initialRecipe);
   const [accessChoice, setAccessChoice] = useState<Access | null>(null);
@@ -206,14 +210,18 @@ function RecipeWizard({ initialRecipe, settings, handoff, example, funnelEnabled
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [handoffMissing, setHandoffMissing] = useState(false);
+  const [cutout, setCutout] = useState<{ orderId: string; previewUrl: string } | null>(null);
+  const [reuseMessage, setReuseMessage] = useState("");
   const checkedHandoff = useRef(false);
+  const replacedSource = useRef(false);
   const uploaded = useRef<{ file: File; id: string } | null>(null);
   const recipe = recipeCatalog[recipeKey];
   const trialPossible = recipe.trial && settings.trialEnabled;
   const access = trialPossible && (accessChoice === "trial" || (accessChoice === null && settings.trialState === "available")) ? "trial" : "premium";
   const verify = access === "trial" && settings.trialState === "available" && !settings.verified;
   const accessAvailable = access === "trial" ? settings.verified && settings.trialState === "available" : settings.paymentMode !== "disabled";
-  const ready = Boolean(file && preview?.file === file);
+  const reusableSource = access === "premium" && !recipe.trial ? cutout : null;
+  const ready = Boolean(reusableSource || (file && preview?.file === file));
 
   useEffect(() => {
     if (!handoff || checkedHandoff.current) return;
@@ -223,6 +231,22 @@ function RecipeWizard({ initialRecipe, settings, handoff, example, funnelEnabled
     setFile(source.file);
     setLayout({ ...initialLayout, title: source.title, benefit: source.benefit, price: source.price, frame: source.frame });
   }, [handoff]);
+
+  useEffect(() => {
+    if (!reuse) return;
+    const controller = new AbortController();
+    api<Order>(`/recipe-orders/${reuse}`, { signal: controller.signal }).then(order => {
+      if (controller.signal.aborted || replacedSource.current) return;
+      const image = order.files[0];
+      if (!order.canReuseCutout || !image) { setReuseMessage(cutoutUnavailable); return; }
+      const previewUrl = new URL(image.url, window.location.origin);
+      previewUrl.searchParams.set("view", "1");
+      setCutout({ orderId: order.id, previewUrl: previewUrl.href });
+    }).catch(() => {
+      if (!controller.signal.aborted && !replacedSource.current) setReuseMessage(cutoutUnavailable);
+    });
+    return () => controller.abort();
+  }, [reuse]);
 
   useEffect(() => {
     if (!example) return;
@@ -265,24 +289,32 @@ function RecipeWizard({ initialRecipe, settings, handoff, example, funnelEnabled
 
   async function requestQuote(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!file || !ready || !accessAvailable || busy) return;
+    if (!ready || !accessAvailable || busy) return;
     trackRecipeFunnel(funnelEnabled, "start");
     invalidate();
     setBusy(true);
     try {
-      let assetId = uploaded.current?.file === file ? uploaded.current.id : undefined;
-      if (!assetId) {
-        const body = new FormData();
-        body.append("file", file);
-        const asset = await api<{ id: string }>("/assets", { method: "POST", body });
-        assetId = asset.id;
-        uploaded.current = { file, id: assetId };
+      let source: { sourceOrderId: string } | { assetId: string };
+      if (reusableSource) {
+        source = { sourceOrderId: reusableSource.orderId };
+      } else {
+        if (!file) return;
+        let assetId = uploaded.current?.file === file ? uploaded.current.id : undefined;
+        if (!assetId) {
+          const body = new FormData();
+          body.append("file", file);
+          const asset = await api<{ id: string }>("/assets", { method: "POST", body });
+          assetId = asset.id;
+          uploaded.current = { file, id: assetId };
+        }
+        source = { assetId };
       }
       const visitId = recipeFunnelVisit(funnelEnabled);
-      const response = await post<Quote>("/recipe-quotes", { recipeKey, assetId, access, layout }, visitId ? { "X-Recipe-Funnel-Visit": visitId } : undefined);
+      const response = await post<Quote>("/recipe-quotes", { recipeKey, ...source, access, layout }, visitId ? { "X-Recipe-Funnel-Visit": visitId } : undefined);
       setQuote({ ...response, requestKey: crypto.randomUUID(), expired: false, attempted: false });
     } catch (error) {
       if (error instanceof ApiError && error.code === "FILE_NOT_FOUND") uploaded.current = null;
+      if (reusableSource && error instanceof ApiError && error.status === 404) setCutout(null);
       setError(message(error));
     } finally {
       setBusy(false);
@@ -298,7 +330,10 @@ function RecipeWizard({ initialRecipe, settings, handoff, example, funnelEnabled
       const order = await post<{ id: string }>("/recipe-orders", { quoteId: quote.id }, { "Idempotency-Key": quote.requestKey });
       window.location.assign(orderPath(order.id, recipeKey));
     } catch (error) {
-      if (error instanceof ApiError && error.code === "RECIPE_QUOTE_EXPIRED") setQuote(null);
+      if (reusableSource && error instanceof ApiError && error.code === "FILE_NOT_FOUND") {
+        setCutout(null);
+        setQuote(null);
+      } else if (error instanceof ApiError && error.code === "RECIPE_QUOTE_EXPIRED") setQuote(null);
       else if (error instanceof ApiError && error.status < 500) {
         setQuote(current => current && { ...current, attempted: false });
       }
@@ -311,8 +346,8 @@ function RecipeWizard({ initialRecipe, settings, handoff, example, funnelEnabled
     <section className={styles.panel} aria-labelledby="recipe-form-title">
       <h2 id="recipe-form-title">Подготовить заказ</h2>
       <ol className={styles.steps} aria-label="Шаги заказа">
-        <li aria-current={!file ? "step" : undefined}>1. Исходник</li>
-        <li aria-current={file && !quote ? "step" : undefined}>2. Настройки</li>
+        <li aria-current={!ready ? "step" : undefined}>1. Исходник</li>
+        <li aria-current={ready && !quote ? "step" : undefined}>2. Настройки</li>
         <li aria-current={quote ? "step" : undefined}>3. Подтверждение</li>
       </ol>
       <form onSubmit={requestQuote} onChange={invalidate}>
@@ -336,17 +371,30 @@ function RecipeWizard({ initialRecipe, settings, handoff, example, funnelEnabled
           <div>
             <label htmlFor="recipe-photo">Исходное фото</label>
             <div className="upload-box">
-              <span aria-hidden="true">↑</span><span>{file?.name ?? "Выберите изображение"}</span>
+              <span aria-hidden="true">↑</span><span>{file?.name ?? (cutout ? "Выбрать другое фото" : "Выберите изображение")}</span>
               <small id="recipe-photo-formats">PNG, JPEG или WebP · до 10 МБ</small>
-              <input id="recipe-photo" type="file" accept="image/png,image/jpeg,image/webp" aria-describedby="recipe-photo-formats" required={!file}
+              <input id="recipe-photo" type="file" accept="image/png,image/jpeg,image/webp" aria-describedby="recipe-photo-formats" required={!file && !reusableSource}
                 onChange={event => {
+                  replacedSource.current = true;
                   uploaded.current = null;
                   setPreview(null);
                   setHandoffMissing(false);
+                  setCutout(null);
+                  setReuseMessage("");
                   setFile(event.target.files?.[0] ?? null);
                 }} />
             </div>
             {handoffMissing && <p className={styles.hint}>Исходное фото больше не доступно в этой вкладке. Выберите его заново.</p>}
+            {reuseMessage && <p role="status" className={styles.hint}>{reuseMessage}</p>}
+            {cutout && <figure className={styles.preview}>
+              <img src={cutout.previewUrl} alt="Готовое фото без фона" onError={() => {
+                setCutout(null);
+                setReuseMessage(cutoutUnavailable);
+                invalidate();
+              }} />
+              <figcaption>{reusableSource ? "Фото без фона из вашей пробной обработки. Студия использует его из личного хранилища." :
+                "Это фото можно использовать для карточек и рекламы. Для обработки фото выберите новый файл."}</figcaption>
+            </figure>}
             {preview && <figure className={styles.preview}><img src={preview.url} alt="Предпросмотр исходного фото" />
               <figcaption>Фото загружается в личное хранилище при расчёте стоимости.</figcaption></figure>}
           </div>
@@ -489,6 +537,9 @@ function RecipeOrder({ orderId, settings }: { orderId: string; settings: Availab
       </div>}
       {pollError && <p role="alert" className="form-error">{pollError}</p>}
       <div className={styles.actions}>
+        {order.canReuseCutout && <Link className="button button-primary" href={`/apps/recipes?recipe=studio-card&reuse=${order.id}`}>
+          Собрать карточку с этим фото
+        </Link>}
         <button type="button" className="button button-secondary" onClick={refresh} disabled={busy}>Обновить статус заказа</button>
       </div>
     </section>
