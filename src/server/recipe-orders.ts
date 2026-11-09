@@ -76,7 +76,7 @@ export async function createRecipeQuote(userId: string, raw: unknown) {
 
 async function reserveTrial(client: PoolClient, userId: string, orderId: string, ip: string) {
   const { rows: [account] } = await client.query<{ verified: boolean }>(`SELECT email_verified_at IS NOT NULL AS verified
-    FROM users WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, [userId]);
+    FROM users WHERE id=$1 AND deleted_at IS NULL FOR NO KEY UPDATE`, [userId]);
   assert(account?.verified, 403, "TRIAL_EMAIL_REQUIRED", "Подтвердите почту для пробной обработки");
   const existing = await client.query("SELECT user_id FROM recipe_trial_grants WHERE user_id=$1", [userId]);
   assert(!existing.rowCount, 409, "TRIAL_ALREADY_USED", "Пробная обработка уже использована или выполняется");
