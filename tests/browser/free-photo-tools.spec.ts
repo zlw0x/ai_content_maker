@@ -94,5 +94,17 @@ test("free photo tools keep images local and resize, crop and convert them", asy
   await expect(status).toHaveText("4 × 2 · PNG");
   const exported = await downloadPhoto(page, "PNG", "photo.png");
   expect(exported.subarray(0, 8)).toEqual(png.subarray(0, 8));
+
+  await page.getByLabel("Действие").selectOption("fit");
+  const preset = page.getByLabel("Размер заготовки");
+  for (const [label, width, height] of [["Ozon", 900, 1200], ["Wildberries", 750, 1000]] as const) {
+    await preset.selectOption({ label: `${label} · 3:4 · ${width} × ${height}` });
+    await expect(page.getByLabel("Действие")).toHaveValue("crop");
+    await submit.click();
+    await expect(status).toHaveText(`${width} × ${height} · PNG`);
+    const photo = await downloadPhoto(page, "PNG", "photo.png");
+    expect(photo.readUInt32BE(16)).toBe(width);
+    expect(photo.readUInt32BE(20)).toBe(height);
+  }
   expect(apiRequests).toEqual([]);
 });

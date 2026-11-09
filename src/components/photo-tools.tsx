@@ -8,6 +8,8 @@ const presets = [
   { label: "Квадрат · 1:1", width: "1080", height: "1080" },
   { label: "Вертикаль · 3:4", width: "1200", height: "1600" },
   { label: "Горизонталь · 16:9", width: "1280", height: "720" },
+  { label: "Ozon · 3:4", width: "900", height: "1200", marketplace: true },
+  { label: "Wildberries · 3:4", width: "750", height: "1000", marketplace: true },
 ];
 
 type Result = Awaited<ReturnType<typeof processPhoto>>;
@@ -85,12 +87,16 @@ export function PhotoTools({ funnelEnabled }: { funnelEnabled: boolean }) {
                 const preset = presets[Number(event.target.value)];
                 setWidth(preset.width);
                 setHeight(preset.height);
+                if (preset.marketplace) setOperation("crop");
               }}>
                 {presets.map((preset, index) => <option key={preset.label} value={index}>
                   {preset.label} · {preset.width} × {preset.height}
                 </option>)}
                 <option value={-1} disabled>Свой размер</option>
               </select>
+              {presets[presetIndex]?.marketplace && <p className="small-note">
+                Проверьте, что товар целиком в кадре, а фото подходит под требования вашей категории.
+              </p>}
             </div>
             <div className="form-field">
               <label htmlFor="photo-tools-width">Ширина, пиксели</label>

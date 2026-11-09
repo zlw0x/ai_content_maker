@@ -22,6 +22,8 @@ RECIPE_EMAIL_DELIVERY=mock
 
 Из завершённого Trial «Удалить фон» откройте «Собрать карточку с этим фото». Карточки и реклама используют выданный владельцу PNG из приватного хранилища без повторной загрузки и вызова WaveSpeed. После окончания срока хранения потребуется исходное фото.
 
+В Free «Подготовить фото» доступны заготовки Ozon 900 × 1200 и Wildberries 750 × 1000. Выбор включает кадрирование по центру. Перед публикацией проверьте кадр и правила категории. [Рекомендации Ozon](https://seller.ozon.ru/media/boost/glavnoe-o-perehode-na-foto-3-4-v-kartochkah-otvechaem-na-populyarnye-voprosy-prodavcov/), [требования Wildberries](https://seller.wildberries.ru/instructions/ru/ru/material/item-photo-rules-recommendations-and-common-mistakes).
+
 ## Внешние интеграции
 
 - У `RECIPE_PAYMENT_MODE=yookassa-test` отдельные `YOOKASSA_TEST_SHOP_ID` и `YOOKASSA_TEST_SECRET_KEY`. Вебхук тестового магазина указывает на `/api/webhooks/recipe-yookassa`. Уведомление приводит к серверной сверке объекта по API. Worker этого контура работает в `WAVESPEED_MODE=mock`.
