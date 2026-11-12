@@ -4,6 +4,7 @@ import {config} from "@/server/config";
 import {db} from "@/server/db";
 import {reconcileTopup} from "@/server/operations";
 import {HttpError,publicError} from "@/server/errors";
+import {applyRecipePaymentEvent,applyRecipeRefundEvent,getRecipePaymentMode} from "@/server/recipe-payments";
 
 export const runtime="nodejs";
 type Ctx={params:Promise<{provider:string}>};
@@ -47,6 +48,14 @@ export async function POST(request:NextRequest,ctx:Ctx) {
       // YooKassa does not provide a shared-secret signature for this flow.
       // Ignore any supplied amounts/status; fetch the payment server-to-server.
       await reconcileTopup(event.object.id);
+      return NextResponse.json({ok:true});
+    }
+    if(provider==="recipe-yookassa"){
+      if(getRecipePaymentMode()!=="yookassa-test")throw new HttpError(503,"PAYMENTS_DISABLED","Тестовые платежи отключены");
+      const event=JSON.parse(raw) as {event?:string;object?:{id?:string}};
+      if(typeof event.object?.id!=="string"||typeof event.event!=="string")return NextResponse.json({ok:true});
+      if(event.event.startsWith("payment."))await applyRecipePaymentEvent(event.object.id);
+      if(event.event.startsWith("refund."))await applyRecipeRefundEvent(event.object.id);
       return NextResponse.json({ok:true});
     }
     throw new HttpError(404,"ENDPOINT_NOT_FOUND","Unknown webhook provider");

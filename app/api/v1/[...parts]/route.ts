@@ -11,6 +11,11 @@ import {db} from "@/server/db";
 import {config} from "@/server/config";
 import {grantDemoCredit} from "@/server/operations";
 import {assert,publicError,HttpError} from "@/server/errors";
+import {createRecipeOrder,createRecipeQuote,getRecipeOrder,recipeAvailability,requireRecipeOrders} from "@/server/recipe-orders";
+import {reviseRecipeOrder} from "@/server/recipe-worker";
+import {applyMockRecipePayment,getRecipePayment,getRecipePaymentMode,refreshRecipePayment,requestRecipeRefund,startRecipePayment} from "@/server/recipe-payments";
+import {confirmEmailVerification,startEmailVerification} from "@/server/email-verification";
+import {parseRecipeFunnelEvent,recipeFunnelEnabled,recordRecipeFunnelEvent} from "@/server/recipe-funnel";
 
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
@@ -41,6 +46,9 @@ async function getHandler(request:NextRequest,parts:string[]) {
   }
   if(path==="auth/me")return json(await currentUser());
   const user=await currentUser();
+  if(path==="recipe-availability")return json({...await recipeAvailability(user.id),paymentMode:getRecipePaymentMode()});
+  if(parts[0]==="recipe-orders"&&parts.length===2)return json(await getRecipeOrder(user.id,parts[1]));
+  if(parts[0]==="recipe-orders"&&parts.length===3&&parts[2]==="payment")return json(await getRecipePayment(user.id,parts[1]));
   if(path==="wallet")return json(await getUserWallet(user.id));
   if(path==="library")return json(await listLibrary(user.id,request.nextUrl.searchParams.get("kind"),request.nextUrl.searchParams.get("page")));
   if(path==="orders")return json({items:await listOrders(user.id)});
@@ -55,6 +63,14 @@ async function getHandler(request:NextRequest,parts:string[]) {
 async function postHandler(request:NextRequest,parts:string[]){
   sameOrigin(request);
   const path=parts.join("/");
+  if(path==="recipe-funnel"){
+    if(!recipeFunnelEnabled())return new NextResponse(null,{status:204});
+    assert(request.headers.get("origin")===config().APP_ORIGIN,403,"BAD_ORIGIN","Запрос с другого сайта запрещён");
+    const input=parseRecipeFunnelEvent(await parseJson(request));
+    if(input.stage!=="example")await currentUser();
+    await recordRecipeFunnelEvent(input);
+    return new NextResponse(null,{status:204});
+  }
   if(path==="auth/register"){
     const key="signup:"+(request.headers.get("x-real-ip")??"unknown");
     const {rateLimit,recordFailure}=await import("@/server/security");
@@ -69,6 +85,24 @@ async function postHandler(request:NextRequest,parts:string[]){
   }
   if(path==="auth/logout"){await endSession();return json({ok:true});}
   const user=await currentUser();
+  if(path==="auth/verify-email/start")return json(await startEmailVerification(user.id));
+  if(path==="auth/verify-email/confirm")return json(await confirmEmailVerification(user.id,await parseJson(request)));
+  if(path==="recipe-quotes")return json(await createRecipeQuote(user.id,await parseJson(request),request.headers.get("x-recipe-funnel-visit")),201);
+  if(path==="recipe-orders")return json(await createRecipeOrder(user.id,await parseJson(request),idempotency(request),request.headers.get("x-real-ip")??"unknown"),201);
+  if(parts[0]==="recipe-orders"&&parts.length===3){
+    const orderId=parts[1];
+    if(parts[2]==="payment"){
+      requireRecipeOrders();
+      return json(await startRecipePayment(user.id,orderId));
+    }
+    if(parts[2]==="refresh-payment")return json(await refreshRecipePayment(user.id,orderId));
+    if(parts[2]==="refund")return json(await requestRecipeRefund(user.id,orderId));
+    if(parts[2]==="mock-payment"){
+      const input=z.object({outcome:z.enum(["succeeded","canceled"])}).strict().safeParse(await parseJson(request));
+      assert(input.success,422,"RECIPE_PAYMENT_INPUT","Неизвестный статус тестовой оплаты");
+      return json(await applyMockRecipePayment(user.id,orderId,input.data.outcome));
+    }
+  }
   if(path==="assets"){
     const len=Number(request.headers.get("content-length")??0);
     if(len>11*1024*1024)throw new HttpError(413,"FILE_TOO_LARGE","Изображение должно быть меньше 10 MB");
@@ -92,6 +126,16 @@ export async function GET(request:NextRequest,ctx:Ctx) {
 export async function POST(request:NextRequest,ctx:Ctx) {
   try{return await postHandler(request,(await ctx.params).parts);}
   catch(e){const info=publicError(e);return json(info.body,info.status);}
+}
+
+export async function PATCH(request:NextRequest,ctx:Ctx) {
+  try {
+    sameOrigin(request);
+    const user=await currentUser();
+    const {parts}=await ctx.params;
+    if(parts[0]==="recipe-orders"&&parts.length===2)return json(await reviseRecipeOrder(user.id,parts[1],await parseJson(request)));
+    throw new HttpError(404,"ENDPOINT_NOT_FOUND","Маршрут не найден");
+  }catch(error){const info=publicError(error);return json(info.body,info.status);}
 }
 
 async function deleteHandler(request:NextRequest,parts:string[]){

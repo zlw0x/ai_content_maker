@@ -7,6 +7,8 @@ import {persistOutput,persistMockOutput} from "./media";
 import {reconcileTopup} from "./operations";
 import {promises as fs} from "node:fs";
 import path from "node:path";
+import {tickRecipeWorker} from "./recipe-worker";
+import {expireRecipeFunnel} from "./recipe-funnel";
 
 type Job={id:string;user_id:string;model_id:string;provider_prediction_id:string|null;status:string;input_json:Record<string,unknown>;provider_cost_usd:string};
 
@@ -131,14 +133,21 @@ export async function runWorker():Promise<void> {
   process.on("SIGINT",()=>{stopping=true;});
   console.log("Worker started",config().WAVESPEED_MODE);
   let lastCleanup=0;
+  let lastFunnelCleanup=0;
   while(!stopping) {
     try{
       await tickWorker();
+      await tickRecipeWorker();
       if(Date.now()-lastCleanup>60_000){
         await expireMedia();
         await reconcilePayments();
         await db().query("DELETE FROM sessions WHERE expires_at<now()");
+        await db().query("DELETE FROM email_verifications WHERE send_window<now()-interval '1 day'");
         lastCleanup=Date.now();
+      }
+      if(Date.now()-lastFunnelCleanup>86_400_000){
+        await expireRecipeFunnel();
+        lastFunnelCleanup=Date.now();
       }
     }catch(error){console.error("Worker tick failed",error);}
     await new Promise(resolve=>setTimeout(resolve,config().WORKER_INTERVAL_MS));

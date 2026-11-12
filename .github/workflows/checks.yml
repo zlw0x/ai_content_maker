@@ -27,6 +27,10 @@ jobs:
       ALLOW_LIVE_PAYMENTS: "false"
       STORAGE_DIR: ./private-media
       DEMO_CREDIT_ENABLED: "true"
+      RECIPE_ORDERS_ENABLED: "true"
+      RECIPE_TRIAL_ENABLED: "true"
+      RECIPE_PAYMENT_MODE: mock
+      RECIPE_EMAIL_DELIVERY: mock
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -40,6 +44,12 @@ jobs:
         run: npm run typecheck
       - name: Unit tests
         run: npm run test:unit
+      - name: Recipe payment contracts against isolated test database
+        run: RECIPE_PAYMENT_TEST_DATABASE_URL="$DATABASE_URL" npm run test:recipe-payments
+      - name: Recipe operations against isolated test database
+        run: RECIPE_OPS_TEST_DATABASE_URL="$DATABASE_URL" npm run test:recipe-ops
+      - name: Recipe funnel against isolated test database
+        run: RECIPE_FUNNEL_TEST_DATABASE_URL="$DATABASE_URL" npm run test:recipe-funnel
       - name: Build
         run: npm run build
       - name: Validate Docker Compose configuration
@@ -62,7 +72,16 @@ jobs:
             sleep 1
           done
           npm run test:smoke
+          npm run test:recipes
           npm run test:e2e
+      - name: Save responsive acceptance screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: responsive-acceptance
+          path: test-results/**/responsive-*.png
+          if-no-files-found: ignore
+          retention-days: 7
 
 
   # Run the ACTUAL multi-container production image, migration and worker.

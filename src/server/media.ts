@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { isIP } from "node:net";
 import { config } from "./config";
 import { db,one } from "./db";
 import { assert, HttpError } from "./errors";
+import { downloadProviderMedia, parseProviderMediaUrl } from "./provider-media-http";
 
 const MAX_INPUT=10*1024*1024;
 const MAX_OUTPUT=80*1024*1024;
@@ -49,16 +49,33 @@ export async function localMedia(key:string):Promise<Buffer> {
   if(!/^(input|output)\/[a-f0-9-]{36}$/.test(key)) throw new HttpError(400,"INVALID_FILE","Некорректный путь к файлу");
   return fs.readFile(path.join(config().STORAGE_DIR,key));
 }
+
+export async function persistRecipeAsset(userId: string, body: Buffer): Promise<string> {
+  assert(body.length > 0 && body.length <= MAX_OUTPUT, 502, "OUTPUT_TOO_LARGE", "Результат слишком большой");
+  const type = sniffImage(body);
+  const id = randomUUID();
+  const objectKey = `output/${id}`;
+  const location = path.join(config().STORAGE_DIR, objectKey);
+  await fs.mkdir(path.dirname(location), { recursive: true });
+  await fs.writeFile(location, body, { flag: "wx", mode: 0o600 });
+  try {
+    await db().query(`INSERT INTO media_assets (id,user_id,kind,object_key,media_type,byte_size,expires_at)
+      VALUES ($1,$2,'output',$3,$4,$5,now()+$6*interval '1 day')`,
+      [id, userId, objectKey, type, body.length, config().OUTPUT_RETENTION_DAYS]);
+  } catch (error) {
+    // An uncertain insert may have committed. Delete the file only after verifying absence.
+    const row = await one("SELECT id FROM media_assets WHERE id=$1", [id]).catch(() => undefined);
+    if (row === null) await fs.unlink(location).catch(() => {});
+    throw error;
+  }
+  return id;
+}
 function validateOutputUrl(raw:string):URL {
-  const u=new URL(raw);
-  if(u.protocol!=="https:"||u.username||u.password||!u.hostname||u.port) throw new HttpError(502,"UNSAFE_MEDIA_URL","Invalid output URL");
-  const host=u.hostname.toLowerCase();
-  if(host==="localhost"||host.endsWith(".local")||host.endsWith(".internal")||isIP(host)||host.endsWith(".localhost"))
-    throw new HttpError(502,"UNSAFE_MEDIA_URL","Internal output URL refused");
-  // The output URL came from WaveSpeed, but its hostname could still resolve to private
-  // infrastructure. Require a per-deployment exact host allowlist in live mode.
+  const u=parseProviderMediaUrl(raw);
+  if(!u) throw new HttpError(502,"UNSAFE_MEDIA_URL","Invalid output URL");
+  // The exact host allowlist and the HTTPS socket's DNS check are both required.
   const allowed=config().OUTPUT_HOST_ALLOWLIST.split(",").map(v=>v.trim().toLowerCase()).filter(Boolean);
-  if(!allowed.includes(host))throw new HttpError(502,"OUTPUT_HOST_NOT_ALLOWED",
+  if(!allowed.includes(u.hostname))throw new HttpError(502,"OUTPUT_HOST_NOT_ALLOWED",
     "Host результата не разрешён в OUTPUT_HOST_ALLOWLIST");
   return u;
 }
@@ -83,25 +100,16 @@ export function checkedOutputType(body:Buffer, declared:string):string {
 }
 async function remoteBytes(raw:string):Promise<{body:Buffer;type:string}> {
   const url=validateOutputUrl(raw);
-  const response=await fetch(url,{signal:AbortSignal.timeout(120000),redirect:"error",cache:"no-store"});
-  if(!response.ok||!response.body)throw new HttpError(502,"OUTPUT_DOWNLOAD_FAILED","Результат пока недоступен");
-  const contentLength=Number(response.headers.get("content-length"));
-  if(contentLength>MAX_OUTPUT){await response.body.cancel();throw new HttpError(502,"OUTPUT_TOO_LARGE","Результат слишком большой");}
-  const type=(response.headers.get("content-type")??"").split(";")[0].toLowerCase();
-  const chunks:Uint8Array[]=[];
-  let total=0;
-  const reader=response.body.getReader();
-  try{
-    while(true){
-      const {done,value}=await reader.read();
-      if(done)break;
-      total+=value.byteLength;
-      if(total>MAX_OUTPUT)throw new HttpError(502,"OUTPUT_TOO_LARGE","Результат слишком большой");
-      chunks.push(value);
-    }
-  }finally{reader.releaseLock();}
-  const body=Buffer.concat(chunks.map(c=>Buffer.from(c)),total);
-  return {body,type:checkedOutputType(body,type)};
+  const {body,declaredType}=await downloadProviderMedia(url,MAX_OUTPUT);
+  return {body,type:checkedOutputType(body,declaredType)};
+}
+
+export async function readProviderImage(url: string): Promise<Buffer> {
+  const result = await remoteBytes(url);
+  if (!["image/png", "image/jpeg", "image/webp"].includes(result.type)) {
+    throw new HttpError(502, "INVALID_OUTPUT_TYPE", "Провайдер вернул неподдерживаемый формат изображения");
+  }
+  return result.body;
 }
 export async function persistOutput(userId:string,jobId:string,outputUrl:string,sourceIndex=0):Promise<string> {
   const {body,type}=await remoteBytes(outputUrl);

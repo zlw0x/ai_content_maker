@@ -1,6 +1,7 @@
 import {test,expect} from "@playwright/test";
 import {randomUUID} from "node:crypto";
 import {readFile} from "node:fs/promises";
+import sharp from "sharp";
 
 const png=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEklEQVR4nGO45SMhGjGFAUIBACC9BH+K8i7ZAAAAAElFTkSuQmCC","base64");
 
@@ -86,7 +87,7 @@ test("showcase preserves the selected free recipe across registration and export
   });
   const generationRequests:string[]=[];
   page.on("request",request=>{
-    if (/^\/api\/v1\/(?:assets|quotes|orders)(?:\/|$)/.test(new URL(request.url()).pathname)) {
+    if (/^\/api\/v1\/(?:assets|quotes|orders|recipe-quotes|recipe-orders)(?:\/|$)/.test(new URL(request.url()).pathname)) {
       generationRequests.push(request.url());
     }
   });
@@ -105,9 +106,16 @@ test("showcase preserves the selected free recipe across registration and export
   await page.goto("/apps/product-card?example=unknown");
   await expect(page.getByLabel("Название товара")).toHaveValue("");
   await expect(page.getByLabel("Фото товара")).toHaveAttribute("required","");
-  await page.getByLabel("Фото товара").setInputFiles({name:"photo.png",mimeType:"image/png",buffer:png});
   await page.getByLabel("Название товара").fill("Термокружка");
+  const oversized=Buffer.from(png);
+  oversized.writeUInt32BE(12_001,16);
+  await page.getByLabel("Фото товара").setInputFiles({name:"oversized.png",mimeType:"image/png",buffer:oversized});
+  await page.getByRole("button",{name:"Создать карточку"}).click();
+  await expect(page.getByRole("alert").filter({hasText:"до 24 мегапикселей"})).toBeVisible();
+  await page.getByLabel("Фото товара").setInputFiles({name:"photo.png",mimeType:"image/png",buffer:png});
   await page.getByLabel("Преимущество (необязательно)").fill("450 мл");
+  await page.getByLabel("Цена на макете (необязательно)").fill("1 290 ₽");
+  await page.getByLabel("Рамка вокруг фото").selectOption("line");
   await page.getByLabel("Оформление").selectOption({label:"Тёмная витрина"});
   await page.getByRole("button",{name:"Создать карточку"}).click();
   await expect(page.getByRole("img",{name:"Готовая карточка товара"})).toBeVisible();
@@ -119,8 +127,17 @@ test("showcase preserves the selected free recipe across registration and export
   expect(output.subarray(0,8)).toEqual(png.subarray(0,8));
   expect(output.readUInt32BE(16)).toBe(1200);
   expect(output.readUInt32BE(20)).toBe(1600);
+  const pixel=(left:number,top:number)=>sharp(output).extract({left,top,width:1,height:1}).removeAlpha().raw().toBuffer();
+  expect([...await pixel(74,150)]).toEqual([138,226,202]);
+  expect([...await pixel(1124,1154)]).toEqual([248,245,238]);
   await page.getByLabel("Название товара").fill("Чашка");
   await expect(page.getByRole("link",{name:"Скачать PNG"})).toHaveCount(0);
+  await page.getByRole("button",{name:"Создать карточку"}).click();
+  await page.route("**/api/v1/recipe-availability",route=>route.fulfill({json:{enabled:true,trialEnabled:false,verified:false,trialState:"available",mock:true,paymentMode:"mock"}}));
+  await page.getByRole("button",{name:"Продолжить в студии с этим фото"}).click();
+  await expect(page.getByLabel("Название товара")).toHaveValue("Чашка");
+  await expect(page.getByLabel("Цена на макете")).toHaveValue("1 290 ₽");
+  await expect(page.getByLabel("Рамка вокруг фото")).toHaveValue("line");
   expect(generationRequests).toEqual([]);
 });
 

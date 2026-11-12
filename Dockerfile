@@ -1,4 +1,5 @@
 FROM node:22-alpine
+RUN apk add --no-cache font-dejavu
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund

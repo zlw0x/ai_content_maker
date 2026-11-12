@@ -1,5 +1,6 @@
 import { config } from "./config";
 import { HttpError } from "./errors";
+import { parseProviderMediaUrl, putProviderMedia } from "./provider-media-http";
 
 const BASE = "https://api.wavespeed.ai/api/v3";
 type Payload = {code?:number;message?:string;data?:Record<string,unknown>};
@@ -42,13 +43,11 @@ export async function uploadWaveSpeed(buffer:Buffer, filename:string,mime:string
   if(config().WAVESPEED_MODE==="mock") return "mock://input/"+filename;
   const ticket=await call("/media/uploads","POST",{filename,size:buffer.byteLength,content_type:mime});
   const upload=ticket.upload as {method?:string;url?:string;headers?:Record<string,string>}|undefined;
-  if(!upload||upload.method!=="PUT"||!upload.url||typeof ticket.download_url!=="string") throw new HttpError(502,"BAD_UPLOAD_TICKET","Не удалось получить ссылку для загрузки");
+  if(!upload||upload.method!=="PUT"||typeof upload.url!=="string"||typeof ticket.download_url!=="string") throw new HttpError(502,"BAD_UPLOAD_TICKET","Не удалось получить ссылку для загрузки");
   // Upload URL is an opaque temporary credential issued by WaveSpeed; do not log it or send API key to it.
-  const url=new URL(upload.url);
-  if(url.protocol!=="https:"||url.username||url.password||!url.hostname||/^(localhost|127\.|0\.|10\.|192\.168\.|169\.254\.)/.test(url.hostname))
-    throw new HttpError(502,"BAD_UPLOAD_TARGET","Недопустимый адрес хранилища");
-  const res=await fetch(url,{method:"PUT",headers:upload.headers??{},body:new Uint8Array(buffer),signal:AbortSignal.timeout(120000),redirect:"error"});
-  if(!res.ok) throw new HttpError(502,"UPLOAD_FAILED","Загрузка изображения не удалась");
+  const url=parseProviderMediaUrl(upload.url);
+  if(!url) throw new HttpError(502,"BAD_UPLOAD_TARGET","Недопустимый адрес хранилища");
+  await putProviderMedia(url,buffer,upload.headers);
   return ticket.download_url;
 }
 export async function submitPrediction(modelId:string,input:Record<string,unknown>):Promise<string> {
@@ -60,10 +59,11 @@ export async function submitPrediction(modelId:string,input:Record<string,unknow
   if(typeof data.id!=="string"||!data.id) throw new HttpError(502,"UNKNOWN_PROVIDER_SUBMISSION","WaveSpeed did not return prediction ID");
   return data.id;
 }
-export async function getPrediction(id:string):Promise<Prediction> {
+export async function getPrediction(id:string, options?: { requireIdMatch?: boolean }):Promise<Prediction> {
   if(id.startsWith("mock-")&&config().WAVESPEED_MODE==="mock") return {id,status:"completed",outputs:[]};
   if(!/^[\w-]{5,180}$/.test(id)) throw new HttpError(422,"INVALID_PREDICTION","Invalid provider ID");
   const data=await call("/predictions/"+encodeURIComponent(id)+"/result","GET");
+  if(options?.requireIdMatch&&data.id!==id)throw new HttpError(502,"PREDICTION_ID_MISMATCH","WaveSpeed не подтвердил ID результата");
   return {
     id:String(data.id??id),
     status:String(data.status??"processing"),

@@ -54,18 +54,21 @@ export default function HomePage() {
         <article className={styles.tier}>
           <span className={`${styles.tierLabel} ${styles.tierFree}`}>FREE · ДОСТУПНО</span>
           <h2>Бесплатные инструменты</h2>
-          <p>Начните с карточки товара. Для сборки и скачивания достаточно аккаунта.</p>
-          <Link href="/apps/product-card">Открыть инструмент <span aria-hidden="true">↗</span></Link>
+          <p>Соберите карточку, обрежьте фото или смените его формат. Обработка идёт в браузере.</p>
+          <Link href="/apps/photo-tools">Подготовить фото <span aria-hidden="true">↗</span></Link>
         </article>
         <article className={styles.tier}>
-          <span className={styles.tierLabel}>AI TRIAL · В ПЛАНАХ</span>
+          <span className={styles.tierLabel}>AI TRIAL</span>
           <h2>Первая AI-операция</h2>
           <p>Один пробный запуск для аккаунта с подтверждённой почтой.</p>
+          <Link href="/apps/recipes?recipe=remove-background">Открыть обработку фото <span aria-hidden="true">↗</span></Link>
         </article>
         <article className={styles.tier}>
-          <span className={styles.tierLabel}>PREMIUM · В ПЛАНАХ</span>
+          <span className={styles.tierLabel}>PREMIUM</span>
           <h2>Рекламные комплекты</h2>
           <p>Многошаговые сценарии и профессиональные шаблоны для кампаний.</p>
+          <Link href="/apps/recipes">Открыть студию рецептов <span aria-hidden="true">↗</span></Link>
+          <Link href="/examples">Посмотреть примеры AI-рецептов <span aria-hidden="true">↗</span></Link>
         </article>
       </section>
 
