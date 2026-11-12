@@ -74,6 +74,14 @@ jobs:
           npm run test:smoke
           npm run test:recipes
           npm run test:e2e
+      - name: Save responsive acceptance screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: responsive-acceptance
+          path: test-results/**/responsive-*.png
+          if-no-files-found: ignore
+          retention-days: 7
 
 
   # Run the ACTUAL multi-container production image, migration and worker.
